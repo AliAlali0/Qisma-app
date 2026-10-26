@@ -10,94 +10,240 @@ app.use(express.json());
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 app.get('/', (req, res) => {
-  res.send('✅ سيرفر تطبيق قسمه (المرحلة الثانية - التقييمات المتوازنة) يعمل بنجاح!');
+  res.send('✅ Qisma App Backend is running successfully!');
 });
 
-// دالة خلط عشوائي لكسر الثبات
-function shuffle(array) {
-  const arr = [...array];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
+// دالة صارمة لتنظيف الاسم وإزالة الكلمات الوصفية نهائياً
+function cleanPlayerName(raw) {
+  if (!raw) return 'لاعب';
+  let str = String(raw)
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/🧤|⚽|🔥|⭐|🏟️|🟢|🔵/g, ' ')
+    .replace(/[0-9٠-٩]+/g, ' ')
+    .replace(/[\-\–\—\/\\.,،:()\[\]{}+*]/g, ' ');
+
+  const stopWords = new Set([
+    'ممتاز', 'اسطورة', 'أسطورة', 'متفوق', 'فنان', 'حريقة', 'محترف', 'لعيب',
+    'كويس', 'جيد', 'مجتهد', 'مرتب', 'متوسط', 'يمشي', 'الليلة', 'الحال', 'عادي',
+    'فاشل', 'تكملة', 'عدد', 'ضعيف', 'تعبان', 'جدا', 'جداً',
+    'حارس', 'مرمى', 'دفاع', 'مدافع', 'وسط', 'محور', 'هجوم', 'مهاجم', 'صانع', 'ظهير',
+    'gk', 'st', 'cm', 'cb', 'احتياط', 'انتظار', 'سبير',
+  ]);
+
+  const words = str
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 0 && !stopWords.has(w.toLowerCase()));
+
+  return words.join(' ') || 'لاعب';
 }
 
-// محلل ذكي احتياطي يستخرج الأسماء والتقييمات محلياً لو توقف السيرفر
-function smartLocalAnalyzer(text) {
+function smartLocalFallback(text) {
   const lines = text.split('\n');
-  const players = [];
+  const mainPlayers = [];
+  const waitingPlayers = [];
   let inGoalkeeperSection = false;
+  let gkCountInSec = 0;
+  let isWaitingListStarted = false;
 
   for (let rawLine of lines) {
     let line = rawLine.trim();
     if (!line) continue;
 
+    if (
+      line.includes('احتياط') ||
+      line.includes('انتظار') ||
+      line.includes('اضافية') ||
+      line.includes('إضافية') ||
+      line.includes('سبير') ||
+      line.includes('مقاعد')
+    ) {
+      isWaitingListStarted = true;
+      inGoalkeeperSection = false;
+      continue;
+    }
+
     const isNumbered = /^\s*[0-9٠-٩]+\s*[\/\-.\)]\s*/.test(line);
     if (!isNumbered && (line.includes('حارس') || line.includes('حراس') || line.includes('🧤'))) {
       inGoalkeeperSection = true;
+      gkCountInSec = 0;
       continue;
     }
 
     const match = line.match(/^\s*[0-9٠-٩]+\s*[\/\-.\)]\s*(.*)$/);
     if (match) {
       let rawName = match[1].trim();
-      if (!rawName) continue;
 
-      let isGk = inGoalkeeperSection;
-      if (rawName.includes('🧤') || rawName.includes('حارس') || /\bGK\b/i.test(rawName)) {
-        isGk = true;
+      if (!rawName) {
+        if (!isWaitingListStarted) mainPlayers.push({ isEmptySlot: true });
+        continue;
       }
 
-      // استخراج التقييم لو وجد رقم بين قوسين أو بجانب الاسم (مثل 85)
-      let rating = isGk ? 82 : 75; // افتراضي
-      const ratingMatch = rawName.match(/[\(\[\s](\d{1,2})[\)\]\s]?$/);
-      if (ratingMatch) {
-        rating = parseInt(ratingMatch[1], 10);
-        rawName = rawName.replace(/[\(\[\s]\d{1,2}[\)\]\s]?$/, '').trim();
+      let isGoalkeeper = false;
+      if (!isWaitingListStarted && inGoalkeeperSection && gkCountInSec < 2) {
+        isGoalkeeper = true;
+        gkCountInSec++;
+        if (gkCountInSec >= 2) inGoalkeeperSection = false;
+      }
+      if (rawName.includes('🧤') || /\b(حارس|GK)\b/i.test(rawName)) {
+        isGoalkeeper = true;
       }
 
-      let cleanName = rawName.replace(/🧤/g, '').trim();
-      if (!cleanName) cleanName = isGk ? 'حارس مرمى' : 'لاعب';
+      let rating = isGoalkeeper ? 80 : 75;
+      if (/ممتاز|اسطورة|أسطورة|متفوق|فنان|حريقة|محترف/.test(rawName)) rating = 90;
+      else if (/كويس|جيد|مجتهد|مرتب/.test(rawName)) rating = 80;
+      else if (/متوسط|يمشي|عادي/.test(rawName)) rating = 70;
+      else if (/فاشل|تكملة|ضعيف|تعبان/.test(rawName)) rating = 55;
 
-      players.push({
+      const ratingMatch = rawName.match(/[\(\[\s](\d{1,2})[\)\]\s]?/);
+      if (ratingMatch) rating = parseInt(ratingMatch[1], 10);
+
+      let pos = isGoalkeeper ? 'حارس' : 'وسط';
+      if (!isGoalkeeper) {
+        if (rawName.includes('دفاع') || rawName.includes('مدافع')) pos = 'دفاع';
+        else if (rawName.includes('هجوم') || rawName.includes('مهاجم')) pos = 'هجوم';
+      }
+
+      let cleanName = cleanPlayerName(rawName);
+
+      const playerObj = {
         name: cleanName,
-        isGoalkeeper: isGk,
-        rating: Math.min(Math.max(rating, 40), 99), // بين 40 و 99
-        position: isGk ? 'حارس' : 'وسط',
-      });
+        isGoalkeeper,
+        rating: Math.min(Math.max(rating, 40), 99),
+        position: pos,
+      };
+
+      if (isWaitingListStarted) {
+        waitingPlayers.push(playerObj);
+      } else {
+        mainPlayers.push(playerObj);
+      }
     }
   }
-  return { players };
+
+  let emptySlotsCount = mainPlayers.filter((p) => p.isEmptySlot).length;
+  let activeMainPlayers = mainPlayers.filter((p) => !p.isEmptySlot);
+  let wasRounded = false;
+
+  while (emptySlotsCount > 0 && waitingPlayers.length > 0) {
+    activeMainPlayers.push(waitingPlayers.shift());
+    emptySlotsCount--;
+    wasRounded = true;
+  }
+
+  if (activeMainPlayers.length % 2 !== 0) {
+    if (waitingPlayers.length > 0) {
+      activeMainPlayers.push(waitingPlayers.shift());
+    } else {
+      activeMainPlayers.push({
+        name: 'لاعب إضافي',
+        isGoalkeeper: false,
+        rating: 65,
+        position: 'وسط',
+      });
+    }
+    wasRounded = true;
+  }
+
+  let goalkeepers = activeMainPlayers.filter((p) => p.isGoalkeeper);
+  let outfieldPlayers = activeMainPlayers.filter((p) => !p.isGoalkeeper);
+
+  const teamA = [];
+  const teamB = [];
+
+  goalkeepers.sort((a, b) => b.rating - a.rating);
+  goalkeepers.forEach((gk, index) => {
+    if (index % 2 === 0) teamA.push(gk);
+    else teamB.push(gk);
+  });
+
+  outfieldPlayers.sort((a, b) => b.rating - a.rating);
+  const targetSize = activeMainPlayers.length / 2;
+
+  outfieldPlayers.forEach((player) => {
+    let sumA = teamA.reduce((s, p) => s + p.rating, 0);
+    let sumB = teamB.reduce((s, p) => s + p.rating, 0);
+
+    if (teamA.length < targetSize && teamB.length < targetSize) {
+      if (sumA <= sumB) teamA.push(player);
+      else teamB.push(player);
+    } else if (teamA.length < targetSize) {
+      teamA.push(player);
+    } else {
+      teamB.push(player);
+    }
+  });
+
+  return {
+    totalExtracted: teamA.length + teamB.length,
+    wasRounded,
+    goalkeepersCount: goalkeepers.length,
+    teamA,
+    teamB,
+    teamARatingTotal: teamA.reduce((s, p) => s + p.rating, 0),
+    teamBRatingTotal: teamB.reduce((s, p) => s + p.rating, 0),
+    analysisSource: 'local',
+  };
 }
 
 app.post('/api/divide-teams', async (req, res) => {
-  console.log('📩 وصل طلب جديد لتحليل اللستة مع التقييمات والمراكز!');
+  console.log('[INFO] Received team division request.');
   try {
     const { rawText } = req.body;
     if (!rawText || !rawText.trim()) {
       return res.status(400).json({ error: 'النص فارغ' });
     }
 
-    const prompt = `
-أنت محلل ذكي ومحترف لفرق كرة القدم. مهمتك قراءة النص التالي واستخراج قائمة اللاعبين المسجلين، مع تحديد لكل لاعب:
-1. الاسم (name): بدون أرقام قائمة وبدون إيموجي.
-2. هل هو حارس مرمى؟ (isGoalkeeper: true/false) (اكتشفه من قسم الحراس أو وجود 🧤 أو كلمة حارس).
-3. التقييم (rating): رقم من 50 إلى 99 يمثل مهارة اللاعب. إذا كتب المستخدم تقييماً بجانب الاسم (مثل 90 أو 85)، التزم به. وإذا لم يكتب، خمن تقييماً منطقياً بناءً على مكانة اللاعب أو اسم الشهرة (الأساسيون أو المحترفون عادة 80-90، البقية 70-75، الحارس الممتاز 80-85).
-4. المركز المفضل (position): "دفاع" أو "وسط" أو "هجوم" أو "حارس" بناءً على ما يذكره النص أو طبيعة اللاعب.
+   const prompt = `
+أنت مدرب ومحلل ذكي ومحترف لفرق كرة القدم. مهمتك قراءة رسالة الواتساب التالية كما هي، فهم أقسامها بذكاء، ثم توزيع اللاعبين إلى فريقين متوازنين تماماً (teamA و teamB).
 
-أرجع النتيجة بصيغة JSON حصراً بهذا الهيكل:
+القواعد الذهبية لفهم الرسالة وتوزيع الفرق:
+1. فهم أقسام الرسالة بالترتيب:
+   - اقرأ الرسالة من الأعلى للأسفل.
+   - إذا ظهر عنوان يدل على الحراس (مثل: "🧤حارس🧤" أو "الحراس")، فإن اللاعبين الذين يأتون تحته مباشرة (حتى لو كان مكتوباً بجانب اسمهم رقم تقييم فقط مثل "(88)" أو وصف بدون تكرار كلمة حارس أو GK) هم **حراس مرمى أساسيون** (isGoalkeeper: true و position: "حارس")، وذلك حتى يبدأ قسم جديد (مثل: "مقاعد إضافية" أو "احتياط" أو "انتظار").
+   - كذلك أي لاعب في أي مكان بجانبه "🧤" أو "GK" أو "حارس" هو حارس مرمى.
+2. قائمة الاحتياط / الانتظار / المقاعد الإضافية:
+   - أي أسماء تأتي تحت عنوان يدل على الاحتياط أو الانتظار أو المقاعد الإضافية: **لا تقم بإضافتهم أبداً** للتشكيلة الأساسية إلا في حالتين:
+     أ) إذا كان مجموع اللاعبين الأساسيين (شاملاً الحراس) عدداً فردياً يحتاج لتكملة زوجية.
+     ب) إذا كان هناك أرقام فارغة بدون اسم في اللستة الأساسية تحتاج لمن يملؤها (اسحب من الاحتياط بالترتيب بقدر النقص فقط).
+   - إذا كان عدد اللاعبين الأساسيين زوجياً وكاملاً، تجاهل أسماء الاحتياط تماماً ولا تدخلهم في teamA أو teamB.
+3. التقييم (rating) وحفظ تقييم الحارس واللاعبين:
+   - لكل لاعب (سواء كان حارساً أو لاعب ميدان) تقييم من 50 إلى 99.
+   - إذا كان بجانب اسم اللاعب أو الحارس رقم صريح (مثل 92 أو 88 أو 60)، التزم بنفس الرقم تماماً ولا تغيره!
+   - إذا كان بجانب الاسم أي كلمة أو عبارة تصف مستواه (مثل: ممتاز، متفوق، مجتهد، كويس، متوسط، يمشي الليلة، تكملة عدد، فاشل، أو أي تعبير آخر)، افهم معنى الوصف وقدّر له تقييماً منطقياً يناسب معناه من 50 إلى 99.
+   - إذا لم يُذكر بجانب اللاعب أو الحارس لا رقم ولا وصف، أعطه تقييماً افتراضياً متوازناً (حوالي 75 للاعب و 80 للحارس).
+4. المراكز (position) والتوزيع العادل:
+   - المراكز المسموحة حصراً هي: ("حارس", "دفاع", "وسط", "هجوم").
+   - للحراس ضع دائماً position: "حارس" و isGoalkeeper: true.
+   - لباقي اللاعبين التزم بمركزهم المذكور، ومن لم يُذكر له مركز وزّعه بذكاء بين ("دفاع", "وسط", "هجوم") لتكوين تشكيلة متوازنة في الملعب.
+   - ضع حارساً في teamA وحارساً في teamB، ووزّع باقي اللاعبين بحيث يتساوى عدد اللاعبين في الفريقين ويتقارب مجموع القوة الكلي (teamARatingTotal و teamBRatingTotal) شاملاً تقييم الحراس بأقصى درجة ممكنة.
+
+مهم جداً: ابدأ أولاً بملء مصفوفة extractedMainPlayers باللاعبين الأساسيين الذين استخرجتهم بالترتيب لتتأكد من عدم نسيان أي حارس أو تقييم، ثم كوّن teamA و teamB في JSON بهذا الهيكل الدقيق:
 {
-  "players": [
-    { "name": "اسم اللاعب", "isGoalkeeper": false, "rating": 82, "position": "وسط" }
-  ]
+  "extractedMainPlayers": [
+    { "name": "الاسم النظيف", "isGoalkeeper": false, "rating": 85, "position": "وسط" }
+  ],
+  "totalExtracted": 10,
+  "wasRounded": false,
+  "goalkeepersCount": 2,
+  "teamA": [
+    { "name": "الاسم النظيف", "isGoalkeeper": true, "rating": 88, "position": "حارس" }
+  ],
+  "teamB": [
+    { "name": "الاسم النظيف", "isGoalkeeper": true, "rating": 80, "position": "حارس" }
+  ],
+  "teamARatingTotal": 400,
+  "teamBRatingTotal": 398
 }
 
-النص:
+النص المراد تحليله كما هو:
+"""
 ${rawText}
+"""
 `;
 
-    let parsedData;
+    let resultData;
     try {
       const aiPromise = ai.models.generateContent({
         model: 'gemini-3.8-flash',
@@ -109,83 +255,26 @@ ${rawText}
       });
 
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('AI_TIMEOUT')), 7000)
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 8000)
       );
 
       const response = await Promise.race([aiPromise, timeoutPromise]);
-      parsedData = JSON.parse(response.text);
+      resultData = JSON.parse(response.text);
+      resultData.analysisSource = 'ai';
+
+      if (resultData.teamA) resultData.teamA.forEach(p => p.name = cleanPlayerName(p.name));
+      if (resultData.teamB) resultData.teamB.forEach(p => p.name = cleanPlayerName(p.name));
     } catch (aiError) {
-      console.log('⚡ تم التحويل للمحلل المحلي نظراً لضغط السيرفر.');
-      parsedData = smartLocalAnalyzer(rawText);
+      resultData = smartLocalFallback(rawText);
     }
 
-    let players = parsedData.players || [];
-    if (players.length < 2) {
-      return res.status(400).json({ error: 'لم يتم العثور على عدد كافٍ من اللاعبين.' });
-    }
-
-    const totalExtracted = players.length;
-    let wasRounded = false;
-
-    // فصل الحراس عن اللاعبين
-    let goalkeepers = shuffle(players.filter((p) => p.isGoalkeeper));
-    let outfieldPlayers = shuffle(players.filter((p) => !p.isGoalkeeper));
-
-    // إذا كان المجموع فردياً، نضيف لاعباً شاغراً بتقييم متوسط (65)
-    if ((goalkeepers.length + outfieldPlayers.length) % 2 !== 0) {
-      outfieldPlayers.push({ name: 'لاعب إضافي (شاغر)', isGoalkeeper: false, rating: 65, position: 'احتياط' });
-      wasRounded = true;
-    }
-
-    const teamA = [];
-    const teamB = [];
-
-    // 1. توزيع الحراس بالتساوي بحيث يتواجهون
-    goalkeepers.forEach((gk, index) => {
-      if (index % 2 === 0) {
-        teamA.push(gk);
-      } else {
-        teamB.push(gk);
-      }
-    });
-
-    // 2. توزيع اللاعبين العاديين بنظام "السنيك (Snake Draft)" لتوازن المجموع الكلي للقوة
-    // ترتيب اللاعبين تنازلياً حسب القوة (الريت) لتوزيع الأقوياء بالعدل بين الفريقين
-    outfieldPlayers.sort((a, b) => b.rating - a.rating);
-
-    let teamASumRating = teamA.reduce((acc, p) => acc + p.rating, 0);
-    let teamBSumRating = teamB.reduce((acc, p) => acc + p.rating, 0);
-
-    outfieldPlayers.forEach((player) => {
-      // ضع اللاعب في الفريق الذي مجموعه أقل حالياً لتحقيق التوازن الذكي
-      if (teamASumRating <= teamBSumRating) {
-        teamA.push(player);
-        teamASumRating += player.rating;
-      } else {
-        teamB.push(player);
-        teamBSumRating += player.rating;
-      }
-    });
-
-    const teamARatingTotal = teamA.reduce((sum, p) => sum + p.rating, 0);
-    const teamBRatingTotal = teamB.reduce((sum, p) => sum + p.rating, 0);
-
-    res.json({
-      totalExtracted,
-      wasRounded,
-      goalkeepersCount: goalkeepers.length,
-      teamA,
-      teamB,
-      teamARatingTotal,
-      teamBRatingTotal,
-    });
+    res.json(resultData);
   } catch (error) {
-    console.error('❌ Error:', error);
     res.status(500).json({ error: 'حدث خطأ في السيرفر: ' + error.message });
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`[READY] Server running on port ${PORT}`);
 });

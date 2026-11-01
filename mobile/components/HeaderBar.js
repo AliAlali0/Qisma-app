@@ -9,6 +9,8 @@ export default function HeaderBar({
   onSwitchRole,
   mainScreen,
   onGoHome,
+  onGoBack,
+  canGoBack,
 }) {
   return (
     <View style={styles.header}>
@@ -27,6 +29,12 @@ export default function HeaderBar({
               🔐 {userRole === 'guest' ? 'دخول' : currentUsername}
             </Text>
           </TouchableOpacity>
+
+          {mainScreen !== 'home' && canGoBack && (
+            <TouchableOpacity style={styles.backHeaderBtn} onPress={onGoBack}>
+              <Text style={styles.backHeaderBtnText}>▶ رجوع</Text>
+            </TouchableOpacity>
+          )}
 
           {mainScreen !== 'home' && (
             <TouchableOpacity style={styles.homeHeaderBtn} onPress={onGoHome}>

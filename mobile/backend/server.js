@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { pool, initDatabase } = require('./db');
@@ -1427,7 +1427,7 @@ app.post('/api/teams', async (req, res) => {
 app.put('/api/teams/:id', async (req, res) => {
   try {
     const teamId = req.params.id;
-    const { name, kit_color, defenders_count, midfielders_count, attackers_count } = req.body;
+    const { name, kit_color, defenders_count, midfielders_count, attackers_count, players_data } = req.body;
 
     const result = await pool.query(
       `UPDATE teams
@@ -1435,8 +1435,9 @@ app.put('/api/teams/:id', async (req, res) => {
            kit_color = COALESCE($2, kit_color),
            defenders_count = COALESCE($3, defenders_count),
            midfielders_count = COALESCE($4, midfielders_count),
-           attackers_count = COALESCE($5, attackers_count)
-       WHERE id = $6
+           attackers_count = COALESCE($5, attackers_count),
+           players_data = CASE WHEN $6::jsonb IS NOT NULL THEN $6::jsonb ELSE players_data END
+       WHERE id = $7
        RETURNING *`,
       [
         name && name.trim() ? name.trim() : null,
@@ -1444,6 +1445,7 @@ app.put('/api/teams/:id', async (req, res) => {
         defenders_count ? Number(defenders_count) : null,
         midfielders_count ? Number(midfielders_count) : null,
         attackers_count ? Number(attackers_count) : null,
+        players_data !== undefined ? JSON.stringify(Array.isArray(players_data) ? players_data : []) : null,
         teamId,
       ]
     );

@@ -16,8 +16,8 @@ export default function HomeScreen({
     {
       key: 'divide',
       icon: '⚡',
-      title: 'تقسيم اللستة النصية',
-      subtitle: 'لصق لستة الواتساب وتوزيع الفريقين مع الملعب التفاعلي',
+      title: 'تقسيم اللستة',
+      subtitle: 'لصق لستة الواتساب وتوزيع الفريقين',
       badge: 'متاح للجميع',
       locked: false,
       color: '#1B4332',
@@ -25,8 +25,8 @@ export default function HomeScreen({
     {
       key: 'draft',
       icon: '🎮',
-      title: 'التقسيم من الصفر (التكتيكي)',
-      subtitle: 'تحديد الخطة واختيار اللاعبين بالمركز الأساسي والاحتياطي',
+      title: 'التقسيم التكتيكي',
+      subtitle: 'تحديد الخطة واختيار اللاعبين بالمركز',
       badge: 'للمسجلين',
       locked: !isLoggedUser,
       color: '#0F766E',
@@ -34,8 +34,8 @@ export default function HomeScreen({
     {
       key: 'tournament_create',
       icon: '➕',
-      title: 'إنشاء بطولة جديدة',
-      subtitle: 'اختيار يدوي لعدد الفرق • دوري نقاط أو إقصاء • قرعة عشوائية',
+      title: 'بطولة جديدة',
+      subtitle: 'دوري نقاط أو إقصاء • قرعة عشوائية',
       badge: 'جديد 🏆',
       locked: !isLoggedUser,
       color: '#B45309',
@@ -43,8 +43,8 @@ export default function HomeScreen({
     {
       key: 'tournaments_list',
       icon: '🏆',
-      title: 'سجل البطولات المحفوظة',
-      subtitle: 'استعراض جميع البطولات التي تم إنشاؤها ومتابعة نتائجها',
+      title: 'سجل البطولات',
+      subtitle: 'استعراض البطولات ومتابعة النتائج',
       badge: `${tournamentsCount} بطولة`,
       locked: !isLoggedUser,
       color: '#D97706',
@@ -52,8 +52,8 @@ export default function HomeScreen({
     {
       key: 'teams',
       icon: '🛡️',
-      title: 'سجل الأفرقة (Teams)',
-      subtitle: 'جميع الفرق المنشأة في البطولات والفرق المخصصة (A, B..Z, AA)',
+      title: 'الأفرقة',
+      subtitle: 'جميع الفرق المنشأة والمخصصة',
       badge: `${teamsCount} فريق`,
       locked: !isLoggedUser,
       color: '#7C3AED',
@@ -61,8 +61,8 @@ export default function HomeScreen({
     {
       key: 'players',
       icon: '👥',
-      title: 'سجل وإدارة اللاعبين',
-      subtitle: 'إضافة وتعديل اللاعبين، المراكز الاحتياطية، وإحصائيات الفوز',
+      title: 'اللاعبين',
+      subtitle: 'إضافة وتعديل اللاعبين والمراكز',
       badge: `${playersCount} لاعب`,
       locked: !isLoggedUser,
       color: '#0369A1',
@@ -70,8 +70,8 @@ export default function HomeScreen({
     {
       key: 'matches',
       icon: '📜',
-      title: 'أرشيف ونتائج المباريات',
-      subtitle: 'سجل المباريات السابقة، رصد النتائج، واختيار نجم المباراة MVP',
+      title: 'أرشيف المباريات',
+      subtitle: 'سجل النتائج واختيار نجم المباراة',
       badge: `${matchesCount} مباراة`,
       locked: !isLoggedUser,
       color: '#1D4ED8',
@@ -99,27 +99,19 @@ export default function HomeScreen({
             key={item.key}
             activeOpacity={0.85}
             style={[
-              styles.homeMenuCard,
-              { borderRightColor: item.color },
-              item.locked && { opacity: 0.6 },
+              styles.homeGridCard,
+              { borderTopColor: item.color },
+              item.locked && { opacity: 0.55 },
             ]}
             onPress={() => handlePressCard(item)}
           >
-            <View style={styles.homeCardLeftCol}>
-              <View style={[styles.homeBadgePill, { backgroundColor: item.color }]}>
-                <Text style={styles.homeBadgeText}>
-                  {item.locked ? '🔒 مقفل' : item.badge}
-                </Text>
-              </View>
-              <Text style={styles.homeCardArrow}>◀</Text>
-            </View>
-
-            <View style={styles.homeCardRightCol}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.homeCardTitle}>{item.title}</Text>
-                <Text style={styles.homeCardIcon}>{item.icon}</Text>
-              </View>
-              <Text style={styles.homeCardSubtitle}>{item.subtitle}</Text>
+            <Text style={styles.homeGridIcon}>{item.icon}</Text>
+            <Text style={styles.homeGridTitle}>{item.title}</Text>
+            <Text style={styles.homeGridSubtitle}>{item.subtitle}</Text>
+            <View style={[styles.homeGridBadge, { backgroundColor: item.color }]}>
+              <Text style={styles.homeGridBadgeText}>
+                {item.locked ? '🔒 مقفل' : item.badge}
+              </Text>
             </View>
           </TouchableOpacity>
         ))}

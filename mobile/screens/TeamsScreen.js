@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import styles from '../styles';
 import { KIT_COLORS } from '../constants/config';
 import { getAlphabetTeamCode, getKitEmojiByHex } from '../utils/helpers';
@@ -7,6 +7,7 @@ import { getAlphabetTeamCode, getKitEmojiByHex } from '../utils/helpers';
 export default function TeamsScreen({
   savedTeams,
   fetchSavedTeams,
+  savedPlayers,
   onCreateTeam,
   onUpdateTeam,
   onDeleteTeam,
@@ -15,25 +16,101 @@ export default function TeamsScreen({
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamColor, setNewTeamColor] = useState('#16A34A');
   const [editingTeamId, setEditingTeamId] = useState(null);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);
+  const [showPlayerPicker, setShowPlayerPicker] = useState(false);
+  const [playerFilterPos, setPlayerFilterPos] = useState('الكل');
+  const [playerSearchQuery, setPlayerSearchQuery] = useState('');
 
   const nextAutoCode = getAlphabetTeamCode(savedTeams.length);
 
+  const togglePlayerSelection = (playerId) => {
+    setSelectedPlayerIds((prev) =>
+      prev.includes(playerId)
+        ? prev.filter((id) => id !== playerId)
+        : [...prev, playerId]
+    );
+  };
+
+  // إحصائيات اللاعبين المحددين للفريق حالياً
+  const selectedPlayersList = (savedPlayers || []).filter((p) =>
+    selectedPlayerIds.includes(p.id)
+  );
+  const gksCount = selectedPlayersList.filter((p) => p.primary_position === 'حارس').length;
+  const defsCount = selectedPlayersList.filter((p) => p.primary_position === 'دفاع').length;
+  const midsCount = selectedPlayersList.filter((p) => p.primary_position === 'وسط').length;
+  const attsCount = selectedPlayersList.filter((p) => p.primary_position === 'هجوم').length;
+
   const handleSubmit = async () => {
+    const chosenPlayers = selectedPlayersList.map((p) => ({
+      name: p.name,
+      rating: p.rating,
+      position: p.primary_position || 'وسط',
+      isGoalkeeper: p.primary_position === 'حارس',
+    }));
+
+    // حساب أعداد المراكز تلقائياً بحسب اللاعبين المختارين
+    const defC = Math.max(defsCount, 2);
+    const midC = Math.max(midsCount, 2);
+    const attC = Math.max(attsCount, 1);
+
     if (editingTeamId) {
       await onUpdateTeam(editingTeamId, {
         name: newTeamName.trim() || `فريق ${nextAutoCode}`,
         kit_color: newTeamColor,
+        defenders_count: defC,
+        midfielders_count: midC,
+        attackers_count: attC,
+        players_data: chosenPlayers,
       });
       setEditingTeamId(null);
     } else {
-      // إذا ترك الاسم فارغاً، السيرفر والواجهة يسميانه تلقائياً: فريق A, B ... Z, AA
       await onCreateTeam({
         name: newTeamName.trim(),
         kit_color: newTeamColor,
+        defenders_count: defC,
+        midfielders_count: midC,
+        attackers_count: attC,
+        players_data: chosenPlayers,
       });
     }
+
     setNewTeamName('');
+    setSelectedPlayerIds([]);
+    setShowPlayerPicker(false);
+    setPlayerSearchQuery('');
   };
+
+  // نافذة تأكيد وتحديد موقع الفريق في الملعب (A أو B)
+  const handleAssignToPitchPrompt = (team) => {
+    Alert.alert(
+      '🏟️ تعيين الفريق في الملعب',
+      `اختر الخانة التي ترغب بتعيين "${team.name}" فيها:`,
+      [
+        {
+          text: '🟢 الفريق الأول (A - أسفل)',
+          onPress: () => onUseTeamInMatch(team, 'A'),
+        },
+        {
+          text: '🔵 الفريق الثاني (B - أعلى)',
+          onPress: () => onUseTeamInMatch(team, 'B'),
+        },
+        {
+          text: 'إلغاء',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  // فلترة قائمة اللاعبين للاختيار
+  const filteredPlayers = (savedPlayers || []).filter((p) => {
+    const matchesPos =
+      playerFilterPos === 'الكل' || p.primary_position === playerFilterPos;
+    const matchesSearch =
+      !playerSearchQuery.trim() ||
+      p.name.toLowerCase().includes(playerSearchQuery.trim().toLowerCase());
+    return matchesPos && matchesSearch;
+  });
 
   return (
     <View>
@@ -70,6 +147,195 @@ export default function TeamsScreen({
           ))}
         </View>
 
+        {/* ملخص وزر اختيار اللاعبين يدوياً */}
+        <View style={{ marginTop: 10, marginBottom: 4 }}>
+          <TouchableOpacity
+            style={[
+              styles.primaryButton,
+              {
+                backgroundColor: showPlayerPicker ? '#0284C7' : '#0F766E',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 8,
+              },
+            ]}
+            onPress={() => setShowPlayerPicker(!showPlayerPicker)}
+          >
+            <Text style={styles.primaryButtonText}>
+              👥 {showPlayerPicker ? 'إغلاق قائمة الاختيار ▲' : 'اختر تشكيلة اللاعبين يدوياً ▼'}
+            </Text>
+            {selectedPlayerIds.length > 0 && (
+              <View
+                style={{
+                  backgroundColor: '#FEF08A',
+                  paddingHorizontal: 8,
+                  paddingVertical: 2,
+                  borderRadius: 12,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#1F2937' }}>
+                  {selectedPlayerIds.length} لاعب
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* شريط الإحصائيات السريعة للتشكيلة المختارة */}
+          {selectedPlayerIds.length > 0 && (
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-around',
+                backgroundColor: '#ECFDF5',
+                padding: 8,
+                borderRadius: 8,
+                marginTop: 6,
+                borderWidth: 1,
+                borderColor: '#A7F3D0',
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#065F46' }}>
+                🧤 حراس: {gksCount}
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#065F46' }}>
+                🛡️ دفاع: {defsCount}
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#065F46' }}>
+                ⚙️ وسط: {midsCount}
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#065F46' }}>
+                ⚔️ هجوم: {attsCount}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* قائمة اختيار اللاعبين اليدوية */}
+        {showPlayerPicker && (
+          <View
+            style={{
+              backgroundColor: '#F8FAFC',
+              borderRadius: 12,
+              padding: 12,
+              marginTop: 8,
+              borderWidth: 1,
+              borderColor: '#CBD5E1',
+            }}
+          >
+            {/* بحث عن لاعب */}
+            <TextInput
+              style={[styles.customTeamInput, { marginBottom: 8, backgroundColor: '#FFFFFF' }]}
+              placeholder="🔍 ابحث عن اسم اللاعب..."
+              placeholderTextColor="#999"
+              value={playerSearchQuery}
+              onChangeText={setPlayerSearchQuery}
+              textAlign="right"
+            />
+
+            {/* أزرار فلترة المراكز + أزرار تحديد الكل */}
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 8,
+              }}
+            >
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    const allIds = (savedPlayers || []).map((p) => p.id);
+                    if (selectedPlayerIds.length === allIds.length) {
+                      setSelectedPlayerIds([]);
+                    } else {
+                      setSelectedPlayerIds(allIds);
+                    }
+                  }}
+                >
+                  <Text style={{ fontSize: 11, color: '#0284C7', fontWeight: 'bold' }}>
+                    {selectedPlayerIds.length === (savedPlayers || []).length
+                      ? '❌ إلغاء تحديد الكل'
+                      : '✅ تحديد الكل'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 4 }}>
+                {['الكل', 'حارس', 'دفاع', 'وسط', 'هجوم'].map((pos) => (
+                  <TouchableOpacity
+                    key={`pos-filter-${pos}`}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 6,
+                      backgroundColor: playerFilterPos === pos ? '#0F766E' : '#E2E8F0',
+                    }}
+                    onPress={() => setPlayerFilterPos(pos)}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 'bold',
+                        color: playerFilterPos === pos ? '#FFFFFF' : '#475569',
+                      }}
+                    >
+                      {pos}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* لستة اللاعبين للاختيار بالنقر */}
+            <ScrollView nestedScrollEnabled style={{ maxHeight: 220 }}>
+              {!savedPlayers || savedPlayers.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 12, padding: 12 }}>
+                  لا يوجد لاعبون مسجلون. يمكنك إضافة لاعبين من شاشة "👥 اللاعبين" أولاً.
+                </Text>
+              ) : filteredPlayers.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 12, padding: 12 }}>
+                  لا يوجد لاعب مطابق للبحث.
+                </Text>
+              ) : (
+                filteredPlayers.map((p) => {
+                  const isSelected = selectedPlayerIds.includes(p.id);
+                  const isGk = p.primary_position === 'حارس';
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        backgroundColor: isSelected ? '#E0F2FE' : '#FFFFFF',
+                        borderRadius: 8,
+                        marginBottom: 5,
+                        borderWidth: 1.5,
+                        borderColor: isSelected ? '#0284C7' : '#E2E8F0',
+                      }}
+                      onPress={() => togglePlayerSelection(p.id)}
+                    >
+                      <Text style={{ fontSize: 16 }}>{isSelected ? '☑️' : '⬜'}</Text>
+                      <View style={{ flex: 1, alignItems: 'flex-end', marginRight: 10 }}>
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#1E293B' }}>
+                          {isGk ? '🧤 ' : ''}{p.name}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: '#64748B' }}>
+                          {p.primary_position || 'وسط'} • ⭐ {p.rating}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        )}
+
         <View style={styles.buttonRow}>
           {editingTeamId && (
             <TouchableOpacity
@@ -77,6 +343,9 @@ export default function TeamsScreen({
               onPress={() => {
                 setEditingTeamId(null);
                 setNewTeamName('');
+                setSelectedPlayerIds([]);
+                setShowPlayerPicker(false);
+                setPlayerSearchQuery('');
               }}
             >
               <Text style={styles.clearButtonText}>إلغاء</Text>
@@ -92,14 +361,14 @@ export default function TeamsScreen({
         </View>
       </View>
 
-      {/* قائمة الأفرقة (تشمل أفرقة البطولات والأفرقة المخصصة) */}
+      {/* قائمة الأفرقة المحفوظة وأفرقة البطولات */}
       <View style={styles.card}>
         <View style={styles.labelRow}>
           <TouchableOpacity onPress={fetchSavedTeams}>
             <Text style={{ fontSize: 11, color: '#0284C7', fontWeight: 'bold' }}>🔄 تحديث</Text>
           </TouchableOpacity>
           <Text style={styles.sectionHeaderTitle}>
-            🛡️ جميع الأفرقة المحفوظة وأفرقة البطولات ({savedTeams.length})
+            🛡️ جميع الأفرقة المحفوظة ({savedTeams.length})
           </Text>
         </View>
 
@@ -107,7 +376,18 @@ export default function TeamsScreen({
           <Text style={styles.emptyListText}>لا توجد أفرقة محفوظة حالياً.</Text>
         ) : (
           savedTeams.map((t) => {
-            const players = Array.isArray(t.players_data) ? t.players_data : [];
+            // استخراج آمن لقائمة لاعبي الفريق سواء كانت JSON أو Array
+            let players = [];
+            if (Array.isArray(t.players_data)) {
+              players = t.players_data;
+            } else if (typeof t.players_data === 'string') {
+              try {
+                players = JSON.parse(t.players_data);
+              } catch (e) {
+                players = [];
+              }
+            }
+
             return (
               <View
                 key={t.id}
@@ -130,6 +410,19 @@ export default function TeamsScreen({
                         setEditingTeamId(t.id);
                         setNewTeamName(t.name);
                         setNewTeamColor(t.kit_color || '#16A34A');
+                        // تعبئة اللاعبين المحددين مسبقاً في نموذج التعديل
+                        if (players.length > 0 && savedPlayers) {
+                          const matchedIds = players
+                            .map((tp) => {
+                              const found = savedPlayers.find((sp) => sp.name === tp.name);
+                              return found ? found.id : null;
+                            })
+                            .filter(Boolean);
+                          setSelectedPlayerIds(matchedIds);
+                          setShowPlayerPicker(true);
+                        } else {
+                          setSelectedPlayerIds([]);
+                        }
                       }}
                     >
                       <Text style={{ fontSize: 12 }}>✏️</Text>
@@ -151,7 +444,7 @@ export default function TeamsScreen({
                 >
                   <TouchableOpacity
                     style={styles.saveTeamMiniBtn}
-                    onPress={() => onUseTeamInMatch(t)}
+                    onPress={() => handleAssignToPitchPrompt(t)}
                   >
                     <Text style={styles.saveTeamMiniBtnText}>🏟️ تعيين كفريق في الملعب</Text>
                   </TouchableOpacity>
@@ -161,13 +454,15 @@ export default function TeamsScreen({
                   </Text>
                 </View>
 
-                {players.length > 0 && (
+                {players && players.length > 0 && (
                   <View
                     style={{
                       backgroundColor: '#F8FAFC',
                       padding: 8,
                       borderRadius: 8,
                       marginTop: 4,
+                      borderWidth: 1,
+                      borderColor: '#F1F5F9',
                     }}
                   >
                     <Text
@@ -181,7 +476,7 @@ export default function TeamsScreen({
                     >
                       👥 تشكيلة الفريق ({players.length} لاعب):
                     </Text>
-                    <Text style={{ fontSize: 11, color: '#374151', textAlign: 'right' }}>
+                    <Text style={{ fontSize: 11, color: '#374151', textAlign: 'right', lineHeight: 18 }}>
                       {players
                         .map(
                           (p) =>

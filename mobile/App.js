@@ -55,6 +55,27 @@ export default function App() {
 
   // الواجهة الافتراضية هي القائمة الرئيسية 'home'
   const [mainScreen, setMainScreen] = useState('home');
+  const [screenHistory, setScreenHistory] = useState([]);
+
+  // دالة التنقل مع حفظ السجل للرجوع
+  const navigateTo = (screen) => {
+    setScreenHistory((prev) => [...prev, mainScreen]);
+    setMainScreen(screen);
+  };
+
+  // دالة الرجوع للشاشة السابقة
+  const goBack = () => {
+    setScreenHistory((prev) => {
+      if (prev.length === 0) {
+        setMainScreen('home');
+        return [];
+      }
+      const newHistory = [...prev];
+      const previousScreen = newHistory.pop();
+      setMainScreen(previousScreen);
+      return newHistory;
+    });
+  };
 
   const [teamAName, setTeamAName] = useState('فريق A');
   const [teamBName, setTeamBName] = useState('فريق B');
@@ -223,9 +244,10 @@ export default function App() {
         body: JSON.stringify({
           name: payload.name,
           kit_color: payload.kit_color,
-          defenders_count: draftDefCount,
-          midfielders_count: draftMidCount,
-          attackers_count: draftAttCount,
+          defenders_count: payload.defenders_count !== undefined ? payload.defenders_count : draftDefCount,
+          midfielders_count: payload.midfielders_count !== undefined ? payload.midfielders_count : draftMidCount,
+          attackers_count: payload.attackers_count !== undefined ? payload.attackers_count : draftAttCount,
+          players_data: payload.players_data || [],
         }),
       });
       if (res.ok) await fetchSavedTeams();
@@ -258,20 +280,160 @@ export default function App() {
   };
 
   const applyPresetTeam = (preset, targetTeamKey = 'A') => {
+    // 1. استخراج وتحليل بيانات اللاعبين بأمان (سواء جاءت كمصفوفة أو كنص JSON)
+    let players = [];
+    if (Array.isArray(preset.players_data)) {
+      players = [...preset.players_data];
+    } else if (typeof preset.players_data === 'string') {
+      try {
+        const parsed = JSON.parse(preset.players_data);
+        if (Array.isArray(parsed)) players = parsed;
+      } catch (e) {
+        players = [];
+      }
+    }
+
+    // تطبيع بيانات اللاعبين
+    const cleanPlayers = players.map((p, idx) => {
+      const pos = p.position || p.primary_position || 'وسط';
+      const isGk = Boolean(p.isGoalkeeper) || pos === 'حارس' || pos === 'GK';
+      let normPos = 'وسط';
+      if (isGk) normPos = 'حارس';
+      else if (pos === 'دفاع' || pos === 'CB') normPos = 'دفاع';
+      else if (pos === 'هجوم' || pos === 'ST') normPos = 'هجوم';
+
+      return {
+        ...p,
+        id: p.id || `p-preset-${idx}-${p.name}`,
+        name: p.name || `لاعب ${idx + 1}`,
+        rating: Number(p.rating) >= 40 ? Math.round(Number(p.rating)) : isGk ? 80 : 75,
+        position: normPos,
+        isGoalkeeper: isGk,
+      };
+    });
+
+    let gks = cleanPlayers.filter((p) => p.isGoalkeeper);
+    let defs = cleanPlayers.filter((p) => !p.isGoalkeeper && p.position === 'دفاع');
+    let mids = cleanPlayers.filter((p) => !p.isGoalkeeper && p.position === 'وسط');
+    let atts = cleanPlayers.filter((p) => !p.isGoalkeeper && p.position === 'هجوم');
+
+    // إذا لم يكن هناك حارس وكان هناك لاعبين، نجعل الأول حارساً
+    if (gks.length === 0 && cleanPlayers.length > 0) {
+      const first = { ...cleanPlayers[0], isGoalkeeper: true, position: 'حارس' };
+      gks = [first];
+      defs = defs.filter((p) => p !== cleanPlayers[0]);
+      mids = mids.filter((p) => p !== cleanPlayers[0]);
+      atts = atts.filter((p) => p !== cleanPlayers[0]);
+    }
+
+    // حساب عدد المراكز بحيث يتسع لجميع اللاعبين المختارين
+    const dCount = Math.max(defs.length, Number(preset.defenders_count) || draftDefCount, 1);
+    const mCount = Math.max(mids.length, Number(preset.midfielders_count) || draftMidCount, 1);
+    const aCount = Math.max(atts.length, Number(preset.attackers_count) || draftAttCount, 1);
+
+    setDraftDefCount(dCount);
+    setDraftMidCount(mCount);
+    setDraftAttCount(aCount);
+
+    // بناء الخانات للفريق المستهدف وتعبئتها باللاعبين
+    const filledSlots = [];
+    filledSlots.push({
+      slotId: `${targetTeamKey}-GK-0`,
+      teamKey: targetTeamKey,
+      position: 'حارس',
+      isGoalkeeper: true,
+      player: gks[0] || null,
+    });
+
+    for (let i = 0; i < dCount; i++) {
+      filledSlots.push({
+        slotId: `${targetTeamKey}-DEF-${i}`,
+        teamKey: targetTeamKey,
+        position: 'دفاع',
+        isGoalkeeper: false,
+        player: defs[i] || null,
+      });
+    }
+
+    for (let i = 0; i < mCount; i++) {
+      filledSlots.push({
+        slotId: `${targetTeamKey}-MID-${i}`,
+        teamKey: targetTeamKey,
+        position: 'وسط',
+        isGoalkeeper: false,
+        player: mids[i] || null,
+      });
+    }
+
+    for (let i = 0; i < aCount; i++) {
+      filledSlots.push({
+        slotId: `${targetTeamKey}-ATT-${i}`,
+        teamKey: targetTeamKey,
+        position: 'هجوم',
+        isGoalkeeper: false,
+        player: atts[i] || null,
+      });
+    }
+
+    // إعادة ضبط أو مواءمة خانات الفريق الآخر لتتوافق مع عدد المراكز الجديد
+    const otherTeamKey = targetTeamKey === 'A' ? 'B' : 'A';
+    const rebuildOtherTeam = (oldSlots) => {
+      const existingGk = oldSlots.find((s) => s.position === 'حارس')?.player || null;
+      const existingDefs = oldSlots.filter((s) => s.position === 'دفاع' && s.player).map((s) => s.player);
+      const existingMids = oldSlots.filter((s) => s.position === 'وسط' && s.player).map((s) => s.player);
+      const existingAtts = oldSlots.filter((s) => s.position === 'هجوم' && s.player).map((s) => s.player);
+
+      const slots = [];
+      slots.push({
+        slotId: `${otherTeamKey}-GK-0`,
+        teamKey: otherTeamKey,
+        position: 'حارس',
+        isGoalkeeper: true,
+        player: existingGk,
+      });
+      for (let i = 0; i < dCount; i++) {
+        slots.push({
+          slotId: `${otherTeamKey}-DEF-${i}`,
+          teamKey: otherTeamKey,
+          position: 'دفاع',
+          isGoalkeeper: false,
+          player: existingDefs[i] || null,
+        });
+      }
+      for (let i = 0; i < mCount; i++) {
+        slots.push({
+          slotId: `${otherTeamKey}-MID-${i}`,
+          teamKey: otherTeamKey,
+          position: 'وسط',
+          isGoalkeeper: false,
+          player: existingMids[i] || null,
+        });
+      }
+      for (let i = 0; i < aCount; i++) {
+        slots.push({
+          slotId: `${otherTeamKey}-ATT-${i}`,
+          teamKey: otherTeamKey,
+          position: 'هجوم',
+          isGoalkeeper: false,
+          player: existingAtts[i] || null,
+        });
+      }
+      return slots;
+    };
+
     if (targetTeamKey === 'A') {
       setTeamAName(preset.name);
       setTeamAColor(preset.kit_color || '#16A34A');
+      setDraftSlotsA(filledSlots);
+      setDraftSlotsB((prev) => rebuildOtherTeam(prev));
     } else {
       setTeamBName(preset.name);
       setTeamBColor(preset.kit_color || '#2563EB');
+      setDraftSlotsB(filledSlots);
+      setDraftSlotsA((prev) => rebuildOtherTeam(prev));
     }
-    if (preset.defenders_count && preset.midfielders_count && preset.attackers_count) {
-      updateFormationCounts(
-        preset.defenders_count,
-        preset.midfielders_count,
-        preset.attackers_count
-      );
-    }
+
+    setSelectedDraftSlotId(null);
   };
 
   const toggleSelectPlayerForTourney = (id) => {
@@ -315,7 +477,7 @@ export default function App() {
       await fetchSavedTeams(); // تحديث سجل الأفرقة لأن أفرقة البطولة انحفظت هناك تلقائياً
 
       // نقل المستخدم مباشرة إلى شاشة تفاصيل البطولة الجديدة
-      setMainScreen('tournament_details');
+      navigateTo('tournament_details');
     } catch (err) {
       Alert.alert('خطأ اتصال', 'تعذر الاتصال بالسيرفر');
     } finally {
@@ -487,7 +649,7 @@ export default function App() {
     setTotalExtracted(balancedA.length + balancedB.length);
     setTeamARatingTotal(balancedA.reduce((s, p) => s + p.rating, 0));
     setTeamBRatingTotal(balancedB.reduce((s, p) => s + p.rating, 0));
-    setMainScreen('divide');
+    navigateTo('divide');
     setActiveTab('pitch');
   };
 
@@ -560,7 +722,7 @@ export default function App() {
     setTotalExtracted(balancedA.length + balancedB.length);
     setTeamARatingTotal(balancedA.reduce((s, p) => s + p.rating, 0));
     setTeamBRatingTotal(balancedB.reduce((s, p) => s + p.rating, 0));
-    setMainScreen('divide');
+    navigateTo('divide');
     setActiveTab('pitch');
   };
 
@@ -1004,15 +1166,18 @@ export default function App() {
           onSwitchRole={(r) => {
             setUserRole(r);
             setMainScreen('home');
+            setScreenHistory([]);
           }}
           mainScreen={mainScreen}
-          onGoHome={() => setMainScreen('home')}
+          onGoHome={() => { setMainScreen('home'); setScreenHistory([]); }}
+          onGoBack={goBack}
+          canGoBack={screenHistory.length > 0}
         />
 
         {mainScreen === 'home' ? (
           <HomeScreen
             userRole={userRole}
-            onNavigate={(scr) => setMainScreen(scr)}
+            onNavigate={(scr) => navigateTo(scr)}
             playersCount={savedPlayers.length}
             teamsCount={savedTeams.length}
             matchesCount={matchesList.length}
@@ -1029,16 +1194,16 @@ export default function App() {
             savedPlayers={savedPlayers}
             setSelectedPlayerIdsForTourney={setSelectedPlayerIdsForTourney}
             setTournamentPlayersModal={setTournamentPlayersModal}
-            onGoToTournamentsList={() => setMainScreen('tournaments_list')}
+            onGoToTournamentsList={() => navigateTo('tournaments_list')}
           />
         ) : isLoggedUser && mainScreen === 'tournaments_list' ? (
           <TournamentsListScreen
             tournamentsHistory={tournamentsHistory}
             onSelectTournament={(t) => {
               setActiveTournament(t);
-              setMainScreen('tournament_details');
+              navigateTo('tournament_details');
             }}
-            onCreateNewTournament={() => setMainScreen('tournament_create')}
+            onCreateNewTournament={() => navigateTo('tournament_create')}
             onDeleteTournament={handleDeleteTournament}
           />
         ) : isLoggedUser && mainScreen === 'tournament_details' ? (
@@ -1051,19 +1216,20 @@ export default function App() {
             setTourneyScoreModalFixture={setTourneyScoreModalFixture}
             setTourneyScoreA={setTourneyScoreA}
             setTourneyScoreB={setTourneyScoreB}
-            onBackToList={() => setMainScreen('tournaments_list')}
-            onGoToTeamsScreen={() => setMainScreen('teams')}
+            onBackToList={() => goBack()}
+            onGoToTeamsScreen={() => navigateTo('teams')}
           />
         ) : isLoggedUser && mainScreen === 'teams' ? (
           <TeamsScreen
             savedTeams={savedTeams}
             fetchSavedTeams={fetchSavedTeams}
+            savedPlayers={savedPlayers}
             onCreateTeam={handleCreateTeamRecord}
             onUpdateTeam={handleUpdateTeamRecord}
             onDeleteTeam={handleDeleteTeamRecord}
-            onUseTeamInMatch={(t) => {
-              applyPresetTeam(t, 'A');
-              setMainScreen('draft');
+            onUseTeamInMatch={(t, targetKey = 'A') => {
+              applyPresetTeam(t, targetKey);
+              navigateTo('draft');
             }}
           />
         ) : isLoggedUser && mainScreen === 'matches' ? (

@@ -1064,58 +1064,64 @@ export default StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
   },
-  homeGridContainer: {
-    gap: 10,
-    marginTop: 6,
+  backHeaderBtn: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#7DD3FC',
   },
-  homeMenuCard: {
+  backHeaderBtnText: {
+    color: '#0369A1',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  homeGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 10,
+  },
+  homeGridCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRightWidth: 6,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    borderTopWidth: 5,
+    width: '48%',
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 140,
   },
-  homeCardRightCol: {
-    flex: 1,
-    alignItems: 'flex-end',
-    paddingLeft: 8,
+  homeGridIcon: {
+    fontSize: 30,
+    marginBottom: 8,
   },
-  homeCardLeftCol: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  homeCardIcon: {
-    fontSize: 20,
-  },
-  homeCardTitle: {
-    fontSize: 14,
+  homeGridTitle: {
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#1B4332',
-    textAlign: 'right',
+    textAlign: 'center',
+    marginBottom: 4,
   },
-  homeCardSubtitle: {
-    fontSize: 11,
+  homeGridSubtitle: {
+    fontSize: 10,
     color: '#6B7280',
-    textAlign: 'right',
-    marginTop: 3,
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 15,
   },
-  homeBadgePill: {
-    paddingHorizontal: 8,
+  homeGridBadge: {
+    paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 10,
   },
-  homeBadgeText: {
+  homeGridBadgeText: {
     color: '#FFFFFF',
     fontSize: 9,
-    fontWeight: 'bold',
-  },
-  homeCardArrow: {
-    fontSize: 13,
-    color: '#9CA3AF',
     fontWeight: 'bold',
   },
   manualCountRow: {

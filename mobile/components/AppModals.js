@@ -385,7 +385,9 @@ export default function AppModals({
               </View>
             </View>
 
-            <Text style={styles.customTeamLabel}>🌟 اختر نجم المباراة (MVP +2 تقييم):</Text>
+            <Text style={styles.customTeamLabel}>
+              🌟 اختر نجم المباراة (MVP: +2 تقييم، وللاعب 85+ يزيد +1 فقط):
+            </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -424,7 +426,7 @@ export default function AppModals({
               onPress={() => setApplyRatingBoost(!applyRatingBoost)}
             >
               <Text style={styles.boostToggleText}>
-                📈 زيادة تقييم الفائزين (+1) ونجم المباراة (+2) في السجل
+                📈 زيادة تقييم الفائزين (+1 لمن تحت 85) وترقية الـ MVP
               </Text>
               <Text style={{ fontSize: 16 }}>{applyRatingBoost ? '✅' : '⬜'}</Text>
             </TouchableOpacity>

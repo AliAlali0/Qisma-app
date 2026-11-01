@@ -1,8 +1,49 @@
+/**
+ * ============================================================================
+ * DraftScreen (Pure Presentational UI Component)
+ * ============================================================================
+ * Tactical Pitch board allowing organizers to pick custom formations (DEF, MID, ATT),
+ * filter draft players by squad circles, and assign players to pitch slots.
+ */
+
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import styles from '../styles';
 import { getKitEmojiByHex, getDraftLines } from '../utils/helpers';
 import { DraftSlotCard } from '../components/PlayerCard';
+import { Player } from '../types/player.types';
+
+export interface DraftScreenProps {
+  draftDefCount: number;
+  draftMidCount: number;
+  draftAttCount: number;
+  updateFormationCounts: (def: number, mid: number, att: number) => void;
+  teamAName: string;
+  setTeamAName: (name: string) => void;
+  teamBName: string;
+  setTeamBName: (name: string) => void;
+  teamAColor: string;
+  teamBColor: string;
+  renderSubscriberTeamsCustomization: (currentScreen: string) => React.ReactNode;
+  resetDraftPitch: () => void;
+  selectedDraftGroup?: string;
+  setSelectedDraftGroup: (group: string) => void;
+  savedPlayers?: Player[];
+  selectTopPlayersForFormation: (groupFilter?: string) => void;
+  setMultiSelectModalVisible: (open: boolean) => void;
+  selectedDraftSlotId: string | null;
+  setSelectedDraftSlotId: (slotId: string | null) => void;
+  draftPitchRef: React.RefObject<any>;
+  draftSlotsA: any[];
+  draftSlotsB: any[];
+  draftTeamATotal: number;
+  draftTeamBTotal: number;
+  handleDraftSlotPress: (slot: any) => void;
+  handleSaveCurrentMatch: (mode: string) => void;
+  handleShareDraftAsImage: () => void;
+  handleShareDraftAsText: () => void;
+}
+
 export default function DraftScreen({
   draftDefCount,
   draftMidCount,
@@ -32,7 +73,7 @@ export default function DraftScreen({
   handleSaveCurrentMatch,
   handleShareDraftAsImage,
   handleShareDraftAsText,
-}) {
+}: DraftScreenProps) {
   const draftLinesB = getDraftLines(draftSlotsB);
   const draftLinesA = getDraftLines(draftSlotsA);
 
@@ -116,104 +157,121 @@ export default function DraftScreen({
           </View>
         </View>
 
-        <View style={styles.customTeamsRow}>
-          <View style={styles.customTeamInputBox}>
-            <Text style={styles.customTeamLabel}>
-              {getKitEmojiByHex(teamBColor, 'B')} اسم الفريق الثاني:
-            </Text>
+        <Text style={styles.totalPitchPlayersText}>
+          إجمالي لاعبي الفريق الواحد:{' '}
+          <Text style={{ fontWeight: 'bold', color: '#1B4332' }}>
+            {draftDefCount + draftMidCount + draftAttCount + 1} لاعبين (شامل الحارس)
+          </Text>
+        </Text>
+
+        <View style={styles.teamNamesRow}>
+          <View style={styles.teamNameCol}>
+            <Text style={styles.teamNameLabel}>اسم الفريق الأول (B):</Text>
             <TextInput
-              style={styles.customTeamInput}
+              style={styles.teamNameInput}
               value={teamBName}
               onChangeText={setTeamBName}
+              placeholder="فريق B"
               textAlign="right"
             />
           </View>
-          <View style={styles.customTeamInputBox}>
-            <Text style={styles.customTeamLabel}>
-              {getKitEmojiByHex(teamAColor, 'A')} اسم الفريق الأول:
-            </Text>
+          <View style={styles.teamNameCol}>
+            <Text style={styles.teamNameLabel}>اسم الفريق الثاني (A):</Text>
             <TextInput
-              style={styles.customTeamInput}
+              style={styles.teamNameInput}
               value={teamAName}
               onChangeText={setTeamAName}
+              placeholder="فريق A"
               textAlign="right"
             />
           </View>
         </View>
 
-        {renderSubscriberTeamsCustomization()}
+        {renderSubscriberTeamsCustomization('draft')}
 
-        {/* شريط فلترة المجموعة للتقسيم التكتيكي (Multi-Squad) */}
-        <View style={{ marginVertical: 10, backgroundColor: '#F8FAFC', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0' }}>
-          <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#1B4332', textAlign: 'right', marginBottom: 6 }}>
-            👥 فلترة لاعبي التقسيم التكتيكي بحسب المجموعة (Multi-Squad):
+        <View style={{ marginVertical: 8 }}>
+          <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#1E293B', textAlign: 'right', marginBottom: 4 }}>
+            👥 اختر المجموعة لتقسيم التشكيلة منها:
           </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-            {availableGroups.map((grp) => {
-              const isSelected = selectedDraftGroup === grp;
-              return (
-                <TouchableOpacity
-                  key={"draft-grp-" + grp}
-                  style={{
-                    backgroundColor: isSelected ? '#0F766E' : '#FFFFFF',
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: isSelected ? '#0F766E' : '#CBD5E1',
-                  }}
-                  onPress={() => setSelectedDraftGroup && setSelectedDraftGroup(grp)}
-                >
-                  <Text style={{ fontSize: 10, fontWeight: 'bold', color: isSelected ? '#FFFFFF' : '#334155' }}>
-                    {grp === 'الكل' ? '🌐 كل المجموعات' : '🏷️ ' + grp}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 2 }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {availableGroups.map((grp) => {
+                const isSelected = selectedDraftGroup === grp;
+                return (
+                  <TouchableOpacity
+                    key={"draft-grp-" + grp}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 4,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: isSelected ? '#16A34A' : '#CBD5E1',
+                      backgroundColor: isSelected ? '#DCFCE7' : '#F8FAFC',
+                    }}
+                    onPress={() => setSelectedDraftGroup(grp)}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: isSelected ? 'bold' : 'normal',
+                        color: isSelected ? '#15803D' : '#475569',
+                      }}
+                    >
+                      {grp}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </ScrollView>
         </View>
 
-        <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.clearButton} onPress={resetDraftPitch}>
-            <Text style={styles.clearButtonText}>تفريغ الملعب</Text>
+        <View style={styles.draftButtonsRow}>
+          <TouchableOpacity style={styles.resetDraftBtn} onPress={resetDraftPitch}>
+            <Text style={styles.resetDraftBtnText}>🔄 تفريغ الملعب</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => {
-              selectTopPlayersForFormation && selectTopPlayersForFormation(selectedDraftGroup);
-              setMultiSelectModalVisible(true);
-            }}
+            style={styles.autoPickBtn}
+            onPress={() => selectTopPlayersForFormation(selectedDraftGroup)}
           >
-            <Text style={styles.primaryButtonText}>
-              🤖 اختر وقسّم لاعبي ({selectedDraftGroup === 'الكل' ? 'الكل' : selectedDraftGroup})
+            <Text style={styles.autoPickBtnText}>
+              ⚡ ملء ذكي وتوازن تكتيكي {selectedDraftGroup !== 'الكل' ? `(${selectedDraftGroup})` : ''}
             </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.multiSelectBtn}
+            onPress={() => setMultiSelectModalVisible(true)}
+          >
+            <Text style={styles.multiSelectBtnText}>👥 اختيار جماعي</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.infoBanner}>
-        <Text style={styles.infoText}>
-          {selectedDraftSlotId
-            ? '🔄 اضغط الآن على أي خانة أخرى في الملعب لتبديل مكان اللاعبين!'
-            : '👆 اضغط على أي مركز في الملعب لاختيار لاعب • أو اضغط مطولاً للتبديل'}
-        </Text>
-      </View>
+      <View style={styles.resultsContainer}>
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoText}>
+            💡 اضغط على أي خانة فارغة لتعيين لاعب، أو اضغط على لاعبين للتبديل بينهما.
+            {selectedDraftSlotId ? '\n🔄 تم تحديد لاعب للتبديل، اضغط على الخانة الأخرى الآن' : ''}
+          </Text>
+        </View>
 
-      <View style={styles.unifiedPitchWrapper}>
-        <View ref={draftPitchRef} collapsable={false} style={styles.unifiedSoccerPitch}>
-          <View style={styles.pitchCenterLine} />
-          <View style={styles.pitchCenterCircle} />
-          <View style={styles.pitchCenterSpot} />
-          <View style={styles.topPenaltyArea} />
-          <View style={styles.bottomPenaltyArea} />
+        <View ref={draftPitchRef} collapsable={false} style={styles.pitchCard}>
+          <View style={styles.pitchInner}>
+            <View style={styles.centerLine} />
+            <View style={styles.centerCircle} />
+            <View style={styles.penaltyAreaTop} />
+            <View style={styles.penaltyAreaBottom} />
 
-          <View style={styles.pitchHalf}>
-            <View style={[styles.teamHalfHeader, { borderColor: teamBColor, borderWidth: 1 }]}>
+            <View
+              style={[styles.teamHalfHeaderTop, { borderColor: teamBColor, borderWidth: 1 }]}
+            >
               <Text style={styles.teamHalfTitle}>
                 {getKitEmojiByHex(teamBColor, 'B')} {teamBName} (⭐ {draftTeamBTotal})
               </Text>
             </View>
+
             <View style={styles.pitchRow}>
               {draftLinesB.gks.map((s) => (
                 <DraftSlotCard
@@ -266,9 +324,7 @@ export default function DraftScreen({
                 />
               ))}
             </View>
-          </View>
 
-          <View style={styles.pitchHalf}>
             <View style={styles.pitchRow}>
               {draftLinesA.atts.map((s) => (
                 <DraftSlotCard

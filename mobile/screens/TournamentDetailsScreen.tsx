@@ -1,6 +1,38 @@
+/**
+ * ============================================================================
+ * TournamentDetailsScreen (Pure Presentational UI Component)
+ * ============================================================================
+ * Displays tournament standings, group tables, knockout brackets, and fixtures.
+ */
+
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import styles from '../styles';
+import { Tournament, TournamentFixture, TournamentTeam } from '../types/tournament.types';
+
+export interface TourneyStandingRow {
+  teamId: string;
+  name: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  gd: number;
+  points: number;
+}
+
+export interface TournamentDetailsScreenProps {
+  activeTournament: Tournament | null;
+  championTeam: TournamentTeam | null;
+  tourneyStandings: TourneyStandingRow[];
+  handleAdvanceGroupToKnockout: () => void;
+  handleOpenTourneyFixtureOnPitch: (fixture: TournamentFixture) => void;
+  setTourneyScoreModalFixture: (fixture: TournamentFixture | null) => void;
+  setTourneyScoreA: (score: string) => void;
+  setTourneyScoreB: (score: string) => void;
+  onBackToList: () => void;
+  onGoToTeamsScreen: () => void;
+}
 
 export default function TournamentDetailsScreen({
   activeTournament,
@@ -13,7 +45,7 @@ export default function TournamentDetailsScreen({
   setTourneyScoreB,
   onBackToList,
   onGoToTeamsScreen,
-}) {
+}: TournamentDetailsScreenProps) {
   if (!activeTournament) {
     return (
       <View style={styles.card}>
@@ -27,7 +59,6 @@ export default function TournamentDetailsScreen({
 
   return (
     <View>
-      {/* شريط علوي للرجوع لقائمة البطولات أو شاشة الأفرقة */}
       <View style={[styles.card, { paddingVertical: 10 }]}>
         <View style={styles.labelRow}>
           <TouchableOpacity style={styles.swapSlotBtn} onPress={onBackToList}>
@@ -51,7 +82,7 @@ export default function TournamentDetailsScreen({
         </View>
       )}
 
-      {/* الأفرقة المشاركة */}
+      {/* Participated Teams */}
       <View style={styles.card}>
         <Text style={styles.sectionHeaderTitle}>
           🛡️ الأفرقة المقسمة ({activeTournament.teams_data?.length || 0} أفرقة)
@@ -83,7 +114,7 @@ export default function TournamentDetailsScreen({
         </View>
       </View>
 
-      {/* جدول النقاط */}
+      {/* Standings Table */}
       {(activeTournament.tournament_type === 'league' ||
         activeTournament.tournament_type === 'groups_knockout') && (
         <View style={styles.card}>
@@ -133,7 +164,7 @@ export default function TournamentDetailsScreen({
         </View>
       )}
 
-      {/* جدول المباريات */}
+      {/* Fixtures Schedule */}
       <View style={styles.card}>
         <Text style={styles.sectionHeaderTitle}>
           ⚽ جدول مواجهات البطولة ({activeTournament.fixtures_data?.length || 0})

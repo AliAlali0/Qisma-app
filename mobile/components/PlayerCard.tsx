@@ -1,3 +1,10 @@
+/**
+ * ============================================================================
+ * PlayerCard Components (PitchPlayerCard & DraftSlotCard)
+ * ============================================================================
+ * Visual pitch cards rendering player rating, kit emoji, and positions.
+ */
+
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import styles from '../styles';
@@ -7,6 +14,16 @@ import {
   getKitEmojiByHex,
 } from '../utils/helpers';
 
+export interface PitchPlayerCardProps {
+  player: any;
+  teamKey?: 'A' | 'B';
+  teamAColor: string;
+  teamBColor: string;
+  selectedPlayerId: string | null;
+  onPlayerPress: (playerId: string) => void;
+  onCyclePosition: (teamKey?: 'A' | 'B', playerId?: string) => void;
+}
+
 export function PitchPlayerCard({
   player,
   teamKey,
@@ -15,7 +32,7 @@ export function PitchPlayerCard({
   selectedPlayerId,
   onPlayerPress,
   onCyclePosition,
-}) {
+}: PitchPlayerCardProps) {
   const isGk = player.position === 'حارس' || player.isGoalkeeper;
   const cardTheme = getCardStyleByRating(player.rating, isGk);
   const posCode = getPositionCode(isGk ? 'حارس' : player.position);
@@ -61,6 +78,15 @@ export function PitchPlayerCard({
   );
 }
 
+export interface DraftSlotCardProps {
+  slot: any;
+  teamAColor: string;
+  teamBColor: string;
+  selectedDraftSlotId: string | null;
+  onSlotPress: (slot: any) => void;
+  onSelectForSwap: (slotId: string) => void;
+}
+
 export function DraftSlotCard({
   slot,
   teamAColor,
@@ -68,7 +94,7 @@ export function DraftSlotCard({
   selectedDraftSlotId,
   onSlotPress,
   onSelectForSwap,
-}) {
+}: DraftSlotCardProps) {
   const isGk = slot.position === 'حارس';
   const posCode = getPositionCode(slot.position);
   const isSelectedForSwap = selectedDraftSlotId === slot.slotId;
@@ -126,7 +152,8 @@ export function DraftSlotCard({
       </TouchableOpacity>
 
       <TouchableOpacity
-        onPress={() => onSelectForSwap(slot.slotId)}
+        hitSlop={{ top: 4, bottom: 8, left: 6, right: 6 }}
+        onPress={() => onSlotPress(slot)}
         style={[styles.playerNamePlate, isSelectedForSwap && styles.selectedNamePlate]}
       >
         <Text style={styles.playerCardName} numberOfLines={1}>

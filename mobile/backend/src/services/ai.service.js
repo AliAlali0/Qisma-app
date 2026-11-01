@@ -1,0 +1,340 @@
+/**
+ * ============================================================================
+ * AI Service (Dual/Hybrid AI Engine: Llama 3.1 + Gemini API + Heuristic Fallback)
+ * ============================================================================
+ * Implements resilient 3-tier parsing of unformatted WhatsApp squad lists:
+ * - Tier 1: Meta Llama 3.1 via local Ollama server (8-second timeout).
+ * - Tier 2: Google Gemini API (gemini-2.5-flash / gemini-1.5-flash) cloud fallback.
+ * - Tier 3: Local regex/heuristic rule engine ensuring 100% zero downtime.
+ */
+
+const axios = require('axios');
+const { GoogleGenAI } = require('@google/genai');
+const { cleanPlayerName } = require('../utils/helpers');
+const { balanceTeamsTactically } = require('./balancing.service');
+
+// Initialize Google Gemini SDK instance if API key is provided
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+
+/**
+ * Builds standard structured JSON prompt for LLM extraction.
+ */
+function buildAIPrompt(text, dbPlayersSummary) {
+  return `
+أنت محلل بيانات رياضي دقيق وصارم جداً. مهمتك تحليل نص الواتساب التالي بدقة حرفية، وعدم اختلاق أو زيادة أو نقصان أي لاعب.
+
+قواعد صارمة جداً:
+1. استخرج اللاعبين **الأساسيين فقط** في مصفوفة "mainPlayers".
+2. أي أسماء تحت عناوين (احتياط، انتظار، سبير، مقاعد إضافية) ضعها في مصفوفة "waitingPlayers" ولا تضعها في الأساسيين أبداً!
+3. عدد اللاعبين في "mainPlayers" يجب أن يطابق بدقة عدد اللاعبين المرقمين في القائمة الأساسية بالنص. لا تحضر أبداً 12 لاعباً إذا كان النص يحتوي على 10 فقط!
+4. الحراس: أي اسم تحت قسم حراس أو بجانبه 🧤 هو حارس (isGoalkeeper: true, position: "حارس").
+5. التقييمات والمراكز: استخرجها من النص أو قاعدة البيانات التالية: [${dbPlayersSummary}] أو ضع الافتراضي (75 لللاعب، 80 للحارس).
+
+أرجع JSON فقط بهذا الشكل:
+{
+  "mainPlayers": [
+    { "name": "اسم اللاعب", "isGoalkeeper": false, "rating": 85, "position": "وسط" }
+  ],
+  "waitingPlayers": [
+    { "name": "اسم الاحتياط", "isGoalkeeper": false, "rating": 70, "position": "وسط" }
+  ]
+}
+
+النص:
+"""
+${text}
+"""
+`;
+}
+
+/**
+ * Cleans and sanitizes LLM JSON output, handles bench substitution for odd counts,
+ * and passes the squads to tactical balancing.
+ */
+function postProcessAIResult(rawResult, dbPlayersMap, explicitHints, analysisSource) {
+  const sanitizePlayer = (p) => {
+    const cleanName = cleanPlayerName(p.name);
+    const dbMatch = dbPlayersMap.get(cleanName);
+    const hint = explicitHints.get(cleanName);
+
+    let isGk =
+      (hint && hint.isGk) ||
+      Boolean(p.isGoalkeeper) ||
+      p.position === 'حارس' ||
+      (dbMatch && dbMatch.primary_position === 'حارس');
+
+    let numRating = hint && hint.rating ? hint.rating : Number(p.rating);
+    if (isNaN(numRating) || numRating < 40 || numRating > 99) {
+      numRating = dbMatch ? Number(dbMatch.rating) : isGk ? 80 : 75;
+    }
+
+    let rawPos = String(p.position || '').trim();
+    if (/هجوم|مهاجم|ST/i.test(rawPos)) rawPos = 'هجوم';
+    else if (/دفاع|مدافع|CB/i.test(rawPos)) rawPos = 'دفاع';
+    else if (/وسط|محور|CM/i.test(rawPos)) rawPos = 'وسط';
+    else if (/حارس|GK/i.test(rawPos)) rawPos = 'حارس';
+
+    let validPos =
+      hint && hint.pos
+        ? hint.pos
+        : ['حارس', 'دفاع', 'وسط', 'هجوم'].includes(rawPos)
+        ? rawPos
+        : dbMatch
+        ? dbMatch.primary_position
+        : 'وسط';
+
+    if (isGk) validPos = 'حارس';
+    else if (validPos === 'حارس') validPos = 'وسط';
+
+    return {
+      name: cleanName,
+      isGoalkeeper: isGk,
+      rating: Math.round(numRating),
+      position: validPos,
+    };
+  };
+
+  let activeMainPlayers = (rawResult.mainPlayers || [])
+    .filter((p) => p && p.name && String(p.name).trim() !== '')
+    .map(sanitizePlayer);
+
+  let waitingList = (rawResult.waitingPlayers || [])
+    .filter((p) => p && p.name && String(p.name).trim() !== '')
+    .map(sanitizePlayer);
+
+  const allRealPlayers = [...activeMainPlayers, ...waitingList];
+
+  let wasRounded = false;
+  if (activeMainPlayers.length % 2 !== 0) {
+    if (waitingList.length > 0) {
+      activeMainPlayers.push(waitingList.shift());
+    } else {
+      activeMainPlayers.push({
+        name: 'لاعب إضافي',
+        isGoalkeeper: false,
+        rating: 70,
+        position: 'وسط',
+      });
+    }
+    wasRounded = true;
+  }
+
+  const result = balanceTeamsTactically(activeMainPlayers, wasRounded, analysisSource);
+  result.allExtractedForDB = allRealPlayers;
+  return result;
+}
+
+/**
+ * Local Meta Llama 3.1 analyzer via Ollama.
+ */
+async function analyzeWithLlamaAI(text, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  const prompt = buildAIPrompt(text, dbPlayersSummary);
+  console.log('[Llama AI] Sending prompt to local Llama 3.1 (Ollama)...');
+
+  const response = await axios.post(
+    'http://127.0.0.1:11434/api/generate',
+    {
+      model: 'llama3.1:latest',
+      prompt: prompt,
+      stream: false,
+      format: 'json',
+      options: {
+        temperature: 0.0,
+      },
+    },
+    { timeout: 8000 }
+  );
+
+  const rawResult = JSON.parse(response.data.response);
+  return postProcessAIResult(rawResult, dbPlayersMap, explicitHints, 'llama');
+}
+
+/**
+ * Cloud Google Gemini analyzer via @google/genai SDK.
+ */
+async function analyzeWithGeminiAI(text, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  if (!ai) {
+    throw new Error('GEMINI_API_KEY is not defined in environment variables');
+  }
+
+  const prompt = buildAIPrompt(text, dbPlayersSummary);
+  console.log('[Gemini Cloud AI] Calling Google Gemini API as intelligent cloud fallback...');
+
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+  } catch (err) {
+    console.warn(`[Gemini 2.5 failed, falling back to gemini-1.5-flash]: ${err.message}`);
+    response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+  }
+
+  let textRes = (response && response.text) ? response.text : '';
+  textRes = textRes.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+  const rawResult = JSON.parse(textRes);
+  return postProcessAIResult(rawResult, dbPlayersMap, explicitHints, 'gemini');
+}
+
+/**
+ * Smart Local Regex / Heuristic Analyzer (Instant, offline rule engine).
+ */
+function guestLocalAnalyzer(text) {
+  const lines = text.split('\n');
+  const mainPlayers = [];
+  const waitingPlayers = [];
+  let inGoalkeeperSection = false;
+  let gkCountInSec = 0;
+  let isWaitingListStarted = false;
+
+  for (let rawLine of lines) {
+    let line = rawLine.trim();
+    if (!line) continue;
+
+    if (
+      /احتياط|انتظار|اضافي|إضافي|سبير|مقاعد|ويتنق|waiting/i.test(line) &&
+      !/^\s*[0-9٠-٩]+\s*[\/\-.\)]/.test(line)
+    ) {
+      isWaitingListStarted = true;
+      inGoalkeeperSection = false;
+      continue;
+    }
+
+    const isNumbered = /^\s*[0-9٠-٩]+\s*[\/\-.\)]\s*/.test(line);
+    if (!isNumbered && (line.includes('حارس') || line.includes('حراس') || line.includes('🧤'))) {
+      inGoalkeeperSection = true;
+      gkCountInSec = 0;
+      continue;
+    }
+
+    const match = line.match(/^\s*[0-9٠-٩]+\s*[\/\-.\)]\s*(.*)$/);
+    if (match) {
+      let rawName = match[1].trim();
+
+      if (!rawName) {
+        if (!isWaitingListStarted) mainPlayers.push({ isEmptySlot: true });
+        continue;
+      }
+
+      let isGoalkeeper = false;
+      if (!isWaitingListStarted && inGoalkeeperSection && gkCountInSec < 2) {
+        isGoalkeeper = true;
+        gkCountInSec++;
+        if (gkCountInSec >= 2) inGoalkeeperSection = false;
+      }
+      if (rawName.includes('🧤') || /(^|\s|\(|\[)(حارس|GK)(\s|\)|\]|$)/i.test(rawName)) {
+        isGoalkeeper = true;
+      }
+
+      let rating = isGoalkeeper ? 80 : 75;
+      if (/اسطورة|أسطورة|خرافي|نار|حريقة|محترف|عالمي/.test(rawName)) rating = 94;
+      else if (/ممتاز|متفوق|فنان|لعيب|كفو|بطل/.test(rawName)) rating = 90;
+      else if (/كويس|جيد|مجتهد|مرتب|نشط|سريع/.test(rawName)) rating = 82;
+      else if (/متوسط|يمشي|عادي|مقبول/.test(rawName)) rating = 70;
+      else if (/فاشل|تكملة|ضعيف|تعبان|طافي|بطيء/.test(rawName)) rating = 55;
+
+      const ratingMatch = rawName.match(/[\(\[\s](\d{2})[\)\]\s]?/);
+      if (ratingMatch) rating = parseInt(ratingMatch[1], 10);
+
+      let pos = isGoalkeeper ? 'حارس' : 'وسط';
+      if (!isGoalkeeper) {
+        if (/دفاع|مدافع|ظهير|قلب|CB/i.test(rawName)) pos = 'دفاع';
+        else if (/هجوم|مهاجم|راس حربة|ST/i.test(rawName)) pos = 'هجوم';
+        else if (/وسط|محور|صانع|CM/i.test(rawName)) pos = 'وسط';
+      }
+
+      let cleanName = cleanPlayerName(rawName);
+
+      const playerObj = {
+        name: cleanName,
+        isGoalkeeper,
+        rating: Math.min(Math.max(rating, 40), 99),
+        position: pos,
+      };
+
+      if (isWaitingListStarted) {
+        waitingPlayers.push(playerObj);
+      } else {
+        mainPlayers.push(playerObj);
+      }
+    }
+  }
+
+  let emptySlotsCount = mainPlayers.filter((p) => p.isEmptySlot).length;
+  let activeMainPlayers = mainPlayers.filter((p) => !p.isEmptySlot);
+  let wasRounded = false;
+
+  while (emptySlotsCount > 0 && waitingPlayers.length > 0) {
+    activeMainPlayers.push(waitingPlayers.shift());
+    emptySlotsCount--;
+    wasRounded = true;
+  }
+
+  const allRealPlayers = [...activeMainPlayers, ...waitingPlayers];
+
+  if (activeMainPlayers.length % 2 !== 0) {
+    if (waitingPlayers.length > 0) {
+      activeMainPlayers.push(waitingPlayers.shift());
+    } else {
+      activeMainPlayers.push({
+        name: 'لاعب إضافي',
+        isGoalkeeper: false,
+        rating: 65,
+        position: 'وسط',
+      });
+    }
+    wasRounded = true;
+  }
+
+  const result = balanceTeamsTactically(activeMainPlayers, wasRounded, 'local');
+  result.allExtractedForDB = allRealPlayers;
+  return result;
+}
+
+/**
+ * High-level AI router: runs Llama 3.1 -> falls back to Gemini -> falls back to Local rule engine.
+ */
+async function processRosterDivision(rawText, userRole, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  if (userRole === 'guest') {
+    const result = guestLocalAnalyzer(rawText);
+    result.analysisSource = 'local';
+    return result;
+  }
+
+  try {
+    const result = await analyzeWithLlamaAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+    console.log(`[AI SUCCESS] Analyzed via Local Llama 3.1 AI (${result.totalExtracted} players).`);
+    return result;
+  } catch (llamaErr) {
+    console.warn(`[Llama AI Unavailable]: ${llamaErr.message}. Initiating auto-fallback to Google Gemini Cloud API...`);
+    try {
+      const result = await analyzeWithGeminiAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+      console.log(`[AI SUCCESS] Analyzed via Google Gemini Cloud AI Fallback (${result.totalExtracted} players).`);
+      return result;
+    } catch (geminiErr) {
+      console.warn(`[Gemini AI Error]: ${geminiErr.message}. Falling back to Smart Local Rule Engine...`);
+      const result = guestLocalAnalyzer(rawText);
+      result.analysisSource = 'local';
+      return result;
+    }
+  }
+}
+
+module.exports = {
+  buildAIPrompt,
+  postProcessAIResult,
+  analyzeWithLlamaAI,
+  analyzeWithGeminiAI,
+  guestLocalAnalyzer,
+  processRosterDivision,
+};

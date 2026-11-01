@@ -1,7 +1,29 @@
+/**
+ * ============================================================================
+ * CreateTournamentScreen (Pure Presentational UI Component)
+ * ============================================================================
+ * Allows organizer to enter tournament name, choose format, and select team counts.
+ */
+
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import styles from '../styles';
 import { getAlphabetTeamCode } from '../utils/helpers';
+import { Player } from '../types/player.types';
+import { TournamentType } from '../types/tournament.types';
+
+export interface CreateTournamentScreenProps {
+  tournamentName: string;
+  setTournamentName: (name: string) => void;
+  tournamentType: TournamentType;
+  setTournamentType: (type: TournamentType) => void;
+  tournamentTeamsCountInput: string | number;
+  setTournamentTeamsCountInput: (count: string) => void;
+  savedPlayers: Player[];
+  setSelectedPlayerIdsForTourney: (ids: (number | string)[]) => void;
+  setTournamentPlayersModal: (open: boolean) => void;
+  onGoToTournamentsList: () => void;
+}
 
 export default function CreateTournamentScreen({
   tournamentName,
@@ -14,8 +36,8 @@ export default function CreateTournamentScreen({
   setSelectedPlayerIdsForTourney,
   setTournamentPlayersModal,
   onGoToTournamentsList,
-}) {
-  const parsedCount = Math.max(parseInt(tournamentTeamsCountInput, 10) || 2, 2);
+}: CreateTournamentScreenProps) {
+  const parsedCount = Math.max(parseInt(String(tournamentTeamsCountInput), 10) || 2, 2);
   const previewNames = Array.from({ length: Math.min(parsedCount, 6) }, (_, i) =>
     `فريق ${getAlphabetTeamCode(i)}`
   ).join(' ، ');
@@ -95,7 +117,6 @@ export default function CreateTournamentScreen({
           </TouchableOpacity>
         </View>
 
-        {/* إدخال عدد الفرق يدوياً */}
         <Text style={styles.customTeamLabel}>
           🚩 اكتب عدد الأفرقة المشاركة يدوياً (أي عدد تريده):
         </Text>
@@ -133,12 +154,12 @@ export default function CreateTournamentScreen({
         <TouchableOpacity
           style={styles.primaryButton}
           onPress={() => {
-            setSelectedPlayerIdsForTourney(savedPlayers.map((p) => p.id));
+            setSelectedPlayerIdsForTourney([]);
             setTournamentPlayersModal(true);
           }}
         >
           <Text style={styles.primaryButtonText}>
-            🎲 اختر اللاعبين وابدأ القرعة لـ ({parsedCount}) أفرقة
+            👥 اختيار اللاعبين المشاركين ({savedPlayers.length} لاعب مسجل) ◀
           </Text>
         </TouchableOpacity>
       </View>

@@ -1,6 +1,24 @@
+/**
+ * ============================================================================
+ * HeaderBar Component (TypeScript UI Component)
+ * ============================================================================
+ * App top navigation bar displaying user role switcher, back button, and home trigger.
+ */
+
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import styles from '../styles';
+
+export interface HeaderBarProps {
+  userRole: string;
+  currentUsername: string;
+  onOpenAuthModal: () => void;
+  onSwitchRole: (role: string) => void;
+  mainScreen: string;
+  onGoHome: () => void;
+  onGoBack: () => void;
+  canGoBack: boolean;
+}
 
 export default function HeaderBar({
   userRole,
@@ -11,7 +29,7 @@ export default function HeaderBar({
   onGoHome,
   onGoBack,
   canGoBack,
-}) {
+}: HeaderBarProps) {
   return (
     <View style={styles.header}>
       <View

@@ -1,6 +1,22 @@
+/**
+ * ============================================================================
+ * HomeScreen (Pure Presentational UI Component)
+ * ============================================================================
+ * 2-Column Grid Dashboard for quick navigation across Qismah features.
+ */
+
 import React from 'react';
 import { View, Text, TouchableOpacity, Alert } from 'react-native';
 import styles from '../styles';
+
+export interface HomeScreenProps {
+  userRole: string;
+  onNavigate: (screenKey: string) => void;
+  playersCount: number;
+  teamsCount: number;
+  matchesCount: number;
+  tournamentsCount: number;
+}
 
 export default function HomeScreen({
   userRole,
@@ -9,7 +25,7 @@ export default function HomeScreen({
   teamsCount,
   matchesCount,
   tournamentsCount,
-}) {
+}: HomeScreenProps) {
   const isLoggedUser = userRole === 'registered' || userRole === 'subscriber';
 
   const menuItems = [
@@ -78,7 +94,7 @@ export default function HomeScreen({
     },
   ];
 
-  const handlePressCard = (item) => {
+  const handlePressCard = (item: typeof menuItems[0]) => {
     if (item.locked) {
       Alert.alert(
         '🔒 ميزة للمسجلين فقط',

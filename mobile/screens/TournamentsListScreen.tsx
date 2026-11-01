@@ -1,14 +1,29 @@
+/**
+ * ============================================================================
+ * TournamentsListScreen (Pure Presentational UI Component)
+ * ============================================================================
+ * Displays tournament records, leagues, and allows opening details.
+ */
+
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import styles from '../styles';
+import { Tournament } from '../types/tournament.types';
+
+export interface TournamentsListScreenProps {
+  tournamentsHistory: Tournament[];
+  onSelectTournament: (tournament: Tournament) => void;
+  onCreateNewTournament: () => void;
+  onDeleteTournament: (id: number) => void;
+}
 
 export default function TournamentsListScreen({
   tournamentsHistory,
   onSelectTournament,
   onCreateNewTournament,
   onDeleteTournament,
-}) {
-  const getTypeLabel = (type) => {
+}: TournamentsListScreenProps) {
+  const getTypeLabel = (type: string) => {
     if (type === 'league') return '📊 دوري نقاط';
     if (type === 'knockout') return '⚔️ إقصاء مباشر';
     return '🔥 نقاط ثم إقصاء';

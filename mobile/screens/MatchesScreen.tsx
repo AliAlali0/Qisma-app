@@ -1,7 +1,29 @@
+/**
+ * ============================================================================
+ * MatchesScreen (Pure Presentational UI Component)
+ * ============================================================================
+ * Displays recorded match archives, scores, and formation history.
+ * Contains ZERO network or database logic - purely visual!
+ */
+
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import styles from '../styles';
 import { getKitEmojiByHex } from '../utils/helpers';
+import { Match } from '../types/match.types';
+
+export interface MatchesScreenProps {
+  matchesList: Match[];
+  loadingMatches: boolean;
+  fetchMatchesList: () => void;
+  handleDeleteMatch: (match: Match) => void;
+  handleLoadMatchToPitch: (match: Match) => void;
+  setScoreModalMatch: (match: Match | null) => void;
+  setModalScoreA: (score: string) => void;
+  setModalScoreB: (score: string) => void;
+  setSelectedMvpName: (name: string) => void;
+  setApplyRatingBoost: (boost: boolean) => void;
+}
 
 export default function MatchesScreen({
   matchesList,
@@ -14,7 +36,7 @@ export default function MatchesScreen({
   setModalScoreB,
   setSelectedMvpName,
   setApplyRatingBoost,
-}) {
+}: MatchesScreenProps) {
   return (
     <View>
       <View style={styles.card}>
@@ -60,43 +82,37 @@ export default function MatchesScreen({
                 <View style={styles.matchScoreBoard}>
                   <View style={styles.teamScoreCol}>
                     <Text style={styles.teamScoreName} numberOfLines={1}>
-                      {getKitEmojiByHex(m.team_b_color, 'B')} {m.team_b_name}
+                      {getKitEmojiByHex(m.team_a_color || '#16A34A')} {m.team_a_name}
                     </Text>
-                    <Text style={styles.teamScoreNum}>
-                      {m.team_b_score !== null ? m.team_b_score : '—'}
-                    </Text>
+                    <Text style={styles.teamScoreNum}>{hasScore ? m.team_a_score : '−'}</Text>
                   </View>
 
-                  <Text style={styles.scoreVsText}>VS</Text>
+                  <Text style={styles.vsBadgeText}>VS</Text>
 
                   <View style={styles.teamScoreCol}>
+                    <Text style={styles.teamScoreNum}>{hasScore ? m.team_b_score : '−'}</Text>
                     <Text style={styles.teamScoreName} numberOfLines={1}>
-                      {getKitEmojiByHex(m.team_a_color, 'A')} {m.team_a_name}
-                    </Text>
-                    <Text style={styles.teamScoreNum}>
-                      {m.team_a_score !== null ? m.team_a_score : '—'}
+                      {m.team_b_name} {getKitEmojiByHex(m.team_b_color || '#2563EB')}
                     </Text>
                   </View>
                 </View>
 
-                {m.mvp_player_name && (
-                  <View style={styles.mvpMatchBanner}>
-                    <Text style={styles.mvpMatchBannerText}>
-                      🌟 نجم المباراة (MVP): {m.mvp_player_name}
-                    </Text>
+                {m.mvp_player_name ? (
+                  <View style={styles.mvpBadgeRow}>
+                    <Text style={styles.mvpBadgeText}>⭐ رجل المباراة: {m.mvp_player_name}</Text>
                   </View>
-                )}
+                ) : null}
 
-                <View style={styles.matchCardActionsRow}>
+                <View style={styles.matchHistoryActions}>
                   <TouchableOpacity
                     style={styles.loadMatchBtn}
                     onPress={() => handleLoadMatchToPitch(m)}
                   >
-                    <Text style={styles.loadMatchBtnText}>🏟️ فتح في الملعب</Text>
+                    <Text style={styles.loadMatchBtnText}>🏟️ إنزال بالملعب</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.setScoreBtn}
+                    style={styles.editScoreBtn}
                     onPress={() => {
                       setScoreModalMatch(m);
                       setModalScoreA(m.team_a_score !== null ? String(m.team_a_score) : '');
@@ -105,8 +121,8 @@ export default function MatchesScreen({
                       setApplyRatingBoost(!m.ratings_applied);
                     }}
                   >
-                    <Text style={styles.setScoreBtnText}>
-                      {hasScore ? '✏️ النتيجة و MVP' : '⚽ رصد النتيجة و MVP'}
+                    <Text style={styles.editScoreBtnText}>
+                      {hasScore ? '✏️ تعديل النتيجة' : '⚽ تسجيل النتيجة'}
                     </Text>
                   </TouchableOpacity>
                 </View>

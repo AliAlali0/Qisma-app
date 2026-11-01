@@ -1,806 +1,1264 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  StyleSheet,
   Text,
   View,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
   Alert,
+  Share,
   StatusBar,
-  ActivityIndicator,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
+import * as ScreenCapture from 'expo-screen-capture';
 
-const API_URL = 'http://192.168.8.2:3000/api/divide-teams';
+import styles from './styles';
+import {
+  API_URL,
+  PLAYERS_API_URL,
+  DRAFT_BALANCE_URL,
+  MATCHES_API_URL,
+  TOURNAMENTS_API_URL,
+  TEAMS_API_URL,
+  AUTH_API_URL,
+  KIT_COLORS,
+  GUEST_TEMPLATE,
+} from './constants/config';
+import {
+  prepareTeamForPitch,
+  createEmptyFormationSlots,
+  computeTournamentStandings,
+  getKitEmojiByHex,
+} from './utils/helpers';
 
-// دالة تنظيف الأسماء من أي كلمات تقييم أو مراكز أو أرقام (تعمل على العربي والإنجليزي 100%)
-function cleanPlayerName(raw) {
-  if (!raw) return 'لاعب';
-  let str = String(raw)
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/🧤|⚽|🔥|⭐|🏟️|🟢|🔵/g, ' ')
-    .replace(/[0-9٠-٩]+/g, ' ')
-    .replace(/[\-\–\—\/\\.,،:()\[\]{}+*]/g, ' ');
+import HeaderBar from './components/HeaderBar';
+import AppModals from './components/AppModals';
 
-  const stopWords = new Set([
-    'ممتاز', 'اسطورة', 'أسطورة', 'متفوق', 'فنان', 'حريقة', 'محترف', 'لعيب',
-    'كويس', 'جيد', 'مجتهد', 'مرتب', 'متوسط', 'يمشي', 'الليلة', 'الحال', 'عادي',
-    'فاشل', 'تكملة', 'عدد', 'ضعيف', 'تعبان', 'جدا', 'جداً',
-    'حارس', 'مرمى', 'دفاع', 'مدافع', 'وسط', 'محور', 'هجوم', 'مهاجم', 'صانع', 'ظهير',
-    'gk', 'st', 'cm', 'cb', 'احتياط', 'انتظار', 'سبير',
-  ]);
-
-  const words = str
-    .split(/\s+/)
-    .map((w) => w.trim())
-    .filter((w) => w.length > 0 && !stopWords.has(w.toLowerCase()));
-
-  return words.join(' ') || 'لاعب';
-}
-
-// تجهيز وتوزيع اللاعبين على خطوط الملعب مع تنظيف أسمائهم
-function prepareTeamForPitch(team) {
-  const updated = team.map((p, index) => {
-    const cleaned = cleanPlayerName(p.name);
-    const isGk = Boolean(p.isGoalkeeper) || p.position === 'حارس';
-    return {
-      ...p,
-      name: cleaned,
-      isGoalkeeper: isGk,
-      position: isGk ? 'حارس' : p.position || 'وسط',
-      uniqueId:
-        p.uniqueId ||
-        `p-${index}-${cleaned.replace(/\s+/g, '')}-${Math.random().toString(36).substring(2, 7)}`,
-    };
-  });
-
-  // تأكد من وجود حارس واحد عند بداية التقسيم
-  let gks = updated.filter((p) => p.isGoalkeeper || p.position === 'حارس');
-  if (gks.length === 0 && updated.length > 0) {
-    updated[0].position = 'حارس';
-    updated[0].isGoalkeeper = true;
-  }
-
-  // توزيع تلقائي للمراكز (دفاع - وسط - هجوم) إذا كان الكل "وسط"
-  const outfield = updated.filter((p) => !p.isGoalkeeper && p.position !== 'حارس');
-  const defs = outfield.filter((p) => p.position === 'دفاع');
-  const atts = outfield.filter((p) => p.position === 'هجوم');
-  const mids = outfield.filter((p) => p.position === 'وسط');
-
-  if (outfield.length >= 3 && (defs.length === 0 || atts.length === 0)) {
-    const totalOut = outfield.length;
-    const targetDef = Math.max(1, Math.round(totalOut * 0.4));
-    const targetAtt = Math.max(1, Math.round(totalOut * 0.25));
-
-    let currentDef = defs.length;
-    let currentAtt = atts.length;
-
-    for (let p of mids) {
-      if (currentDef < targetDef) {
-        p.position = 'دفاع';
-        currentDef++;
-      } else if (currentAtt < targetAtt) {
-        p.position = 'هجوم';
-        currentAtt++;
-      }
-    }
-  }
-
-  return updated;
-}
+// الشاشات
+import HomeScreen from './screens/HomeScreen';
+import CreateTournamentScreen from './screens/CreateTournamentScreen';
+import TournamentsListScreen from './screens/TournamentsListScreen';
+import TournamentDetailsScreen from './screens/TournamentDetailsScreen';
+import TeamsScreen from './screens/TeamsScreen';
+import MatchesScreen from './screens/MatchesScreen';
+import PlayersScreen from './screens/PlayersScreen';
+import DraftScreen from './screens/DraftScreen';
+import DivideScreen from './screens/DivideScreen';
 
 export default function App() {
-  const [rawText, setRawText] = useState('');
+  const [userRole, setUserRole] = useState('guest');
+  const [currentUsername, setCurrentUsername] = useState('admin');
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+  const [authUsernameInput, setAuthUsernameInput] = useState('admin');
+  const [authPasswordInput, setAuthPasswordInput] = useState('1234');
+
+  // الواجهة الافتراضية هي القائمة الرئيسية 'home'
+  const [mainScreen, setMainScreen] = useState('home');
+
+  const [teamAName, setTeamAName] = useState('فريق A');
+  const [teamBName, setTeamBName] = useState('فريق B');
+  const [teamAColor, setTeamAColor] = useState('#16A34A');
+  const [teamBColor, setTeamBColor] = useState('#2563EB');
+  const [savedTeams, setSavedTeams] = useState([]);
+
+  const [rawText, setRawText] = useState(GUEST_TEMPLATE);
   const [teamA, setTeamA] = useState([]);
   const [teamB, setTeamB] = useState([]);
   const [totalExtracted, setTotalExtracted] = useState(0);
-  const [goalkeepersCount, setGoalkeepersCount] = useState(0);
-  const [wasRounded, setWasRounded] = useState(false);
   const [teamARatingTotal, setTeamARatingTotal] = useState(0);
   const [teamBRatingTotal, setTeamBRatingTotal] = useState(0);
-  const [analysisSource, setAnalysisSource] = useState('ai');
+  const [analysisSource, setAnalysisSource] = useState('local');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('pitch');
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
 
-  const pitchRef = useRef();
+  const [savedPlayers, setSavedPlayers] = useState([]);
+  const [loadingPlayers, setLoadingPlayers] = useState(false);
+  const [editingPlayerId, setEditingPlayerId] = useState(null);
+  const [playerNameInput, setPlayerNameInput] = useState('');
+  const [playerRatingInput, setPlayerRatingInput] = useState('80');
+  const [primaryPosInput, setPrimaryPosInput] = useState('وسط');
+  const [secondaryPosInput, setSecondaryPosInput] = useState([]);
 
-  const handleDivideTeams = async () => {
-    if (!rawText.trim()) {
-      Alert.alert('تنبيه', 'الرجاء لصق لستة الواتساب أولاً!');
+  const [draftDefCount, setDraftDefCount] = useState(2);
+  const [draftMidCount, setDraftMidCount] = useState(2);
+  const [draftAttCount, setDraftAttCount] = useState(1);
+  const [draftSlotsA, setDraftSlotsA] = useState(() => createEmptyFormationSlots('A', 2, 2, 1));
+  const [draftSlotsB, setDraftSlotsB] = useState(() => createEmptyFormationSlots('B', 2, 2, 1));
+  const [activeSlotForModal, setActiveSlotForModal] = useState(null);
+  const [selectedDraftSlotId, setSelectedDraftSlotId] = useState(null);
+  const [multiSelectModalVisible, setMultiSelectModalVisible] = useState(false);
+  const [selectedPlayerIdsForAuto, setSelectedPlayerIdsForAuto] = useState([]);
+  const [draftLoading, setDraftLoading] = useState(false);
+
+  const [matchesList, setMatchesList] = useState([]);
+  const [loadingMatches, setLoadingMatches] = useState(false);
+  const [scoreModalMatch, setScoreModalMatch] = useState(null);
+  const [modalScoreA, setModalScoreA] = useState('');
+  const [modalScoreB, setModalScoreB] = useState('');
+  const [selectedMvpName, setSelectedMvpName] = useState('');
+  const [applyRatingBoost, setApplyRatingBoost] = useState(true);
+
+  const [tournamentName, setTournamentName] = useState('بطولة قِسمه الكبرى 🏆');
+  const [tournamentType, setTournamentType] = useState('groups_knockout');
+  const [tournamentTeamsCountInput, setTournamentTeamsCountInput] = useState('4');
+  const [tournamentPlayersModal, setTournamentPlayersModal] = useState(false);
+  const [selectedPlayerIdsForTourney, setSelectedPlayerIdsForTourney] = useState([]);
+  const [activeTournament, setActiveTournament] = useState(null);
+  const [tournamentsHistory, setTournamentsHistory] = useState([]);
+  const [tourneyLoading, setTourneyLoading] = useState(false);
+  const [tourneyScoreModalFixture, setTourneyScoreModalFixture] = useState(null);
+  const [tourneyScoreA, setTourneyScoreA] = useState('');
+  const [tourneyScoreB, setTourneyScoreB] = useState('');
+
+  const pitchRef = useRef();
+  const draftPitchRef = useRef();
+
+  const isLoggedUser = userRole === 'registered' || userRole === 'subscriber';
+  const isSubscriber = userRole === 'subscriber';
+  const parsedTournamentTeamsCount = Math.max(parseInt(tournamentTeamsCountInput, 10) || 2, 2);
+
+  useEffect(() => {
+    let subscription;
+    const updateScreenProtection = async () => {
+      try {
+        if (userRole === 'guest') {
+          await ScreenCapture.preventScreenCaptureAsync();
+          subscription = ScreenCapture.addScreenshotListener(() => {
+            Alert.alert('🚫 تصوير الشاشة غير متاح للضيف', 'سجّل دخولك لتصوير التشكيلة!');
+          });
+        } else {
+          await ScreenCapture.allowScreenCaptureAsync();
+        }
+      } catch (err) {}
+    };
+    updateScreenProtection();
+    return () => {
+      if (subscription) subscription.remove();
+      ScreenCapture.allowScreenCaptureAsync().catch(() => {});
+    };
+  }, [userRole]);
+
+  useEffect(() => {
+    if (isLoggedUser) {
+      fetchSavedPlayers();
+      fetchMatchesList();
+      fetchTournamentsList();
+      fetchSavedTeams();
+    }
+  }, [userRole]);
+
+  const fetchSavedPlayers = async () => {
+    setLoadingPlayers(true);
+    try {
+      const res = await fetch(PLAYERS_API_URL);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) setSavedPlayers(data);
+    } catch (err) {
+    } finally {
+      setLoadingPlayers(false);
+    }
+  };
+
+  const fetchSavedTeams = async () => {
+    try {
+      const res = await fetch(TEAMS_API_URL);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) setSavedTeams(data);
+    } catch (err) {}
+  };
+
+  const fetchMatchesList = async () => {
+    setLoadingMatches(true);
+    try {
+      const res = await fetch(MATCHES_API_URL);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) setMatchesList(data);
+    } catch (err) {
+    } finally {
+      setLoadingMatches(false);
+    }
+  };
+
+  const fetchTournamentsList = async () => {
+    try {
+      const res = await fetch(TOURNAMENTS_API_URL);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        setTournamentsHistory(data);
+        if (data.length > 0 && !activeTournament) setActiveTournament(data[0]);
+      }
+    } catch (err) {}
+  };
+
+  const handleLoginSubmit = async (chosenRole) => {
+    try {
+      const res = await fetch(AUTH_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: authUsernameInput,
+          password: authPasswordInput,
+          role: chosenRole,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCurrentUsername(data.username);
+        setUserRole(data.role);
+        setAuthModalVisible(false);
+      }
+    } catch (err) {
+      setUserRole(chosenRole);
+      setAuthModalVisible(false);
+    }
+  };
+
+  const handleCreateTeamRecord = async (payload) => {
+    try {
+      const res = await fetch(TEAMS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: payload.name,
+          kit_color: payload.kit_color,
+          defenders_count: draftDefCount,
+          midfielders_count: draftMidCount,
+          attackers_count: draftAttCount,
+        }),
+      });
+      if (res.ok) await fetchSavedTeams();
+    } catch (err) {}
+  };
+
+  const handleUpdateTeamRecord = async (teamId, payload) => {
+    try {
+      const res = await fetch(`${TEAMS_API_URL}/${teamId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) await fetchSavedTeams();
+    } catch (err) {}
+  };
+
+  const handleDeleteTeamRecord = async (teamId) => {
+    try {
+      await fetch(`${TEAMS_API_URL}/${teamId}`, { method: 'DELETE' });
+      setSavedTeams((prev) => prev.filter((t) => t.id !== teamId));
+    } catch (err) {}
+  };
+
+  const handleSavePresetTeam = async (teamKey) => {
+    const nameToSave = teamKey === 'A' ? teamAName : teamBName;
+    const colorToSave = teamKey === 'A' ? teamAColor : teamBColor;
+    await handleCreateTeamRecord({ name: nameToSave, kit_color: colorToSave });
+    Alert.alert('✅ تم حفظ الفريق', 'تم حفظ الفريق في شاشة الأفرقة (Teams)!');
+  };
+
+  const applyPresetTeam = (preset, targetTeamKey = 'A') => {
+    if (targetTeamKey === 'A') {
+      setTeamAName(preset.name);
+      setTeamAColor(preset.kit_color || '#16A34A');
+    } else {
+      setTeamBName(preset.name);
+      setTeamBColor(preset.kit_color || '#2563EB');
+    }
+    if (preset.defenders_count && preset.midfielders_count && preset.attackers_count) {
+      updateFormationCounts(
+        preset.defenders_count,
+        preset.midfielders_count,
+        preset.attackers_count
+      );
+    }
+  };
+
+  const toggleSelectPlayerForTourney = (id) => {
+    setSelectedPlayerIdsForTourney((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  // إنشاء البطولة ثم الانتقال تلقائياً إلى شاشة تفاصيل البطولة + تحديث سجل الأفرقة
+  const handleGenerateTournament = async () => {
+    const chosenPlayers = savedPlayers.filter((p) => selectedPlayerIdsForTourney.includes(p.id));
+    if (chosenPlayers.length < parsedTournamentTeamsCount) {
+      Alert.alert(
+        'تنبيه',
+        `اخترت ${parsedTournamentTeamsCount} أفرقة، يرجى تحديد ${parsedTournamentTeamsCount} لاعبين على الأقل!`
+      );
       return;
     }
 
-    setLoading(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    setTourneyLoading(true);
+    try {
+      const res = await fetch(`${TOURNAMENTS_API_URL}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: tournamentName.trim() || 'بطولة قِسمه 🏆',
+          tournamentType,
+          teamsCount: parsedTournamentTeamsCount,
+          players: chosenPlayers,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        Alert.alert('خطأ', data.error || 'فشل إنشاء البطولة');
+        return;
+      }
 
+      setActiveTournament(data);
+      setTournamentsHistory((prev) => [data, ...prev.filter((t) => t.id !== data.id)]);
+      setTournamentPlayersModal(false);
+      await fetchSavedTeams(); // تحديث سجل الأفرقة لأن أفرقة البطولة انحفظت هناك تلقائياً
+
+      // نقل المستخدم مباشرة إلى شاشة تفاصيل البطولة الجديدة
+      setMainScreen('tournament_details');
+    } catch (err) {
+      Alert.alert('خطأ اتصال', 'تعذر الاتصال بالسيرفر');
+    } finally {
+      setTourneyLoading(false);
+    }
+  };
+
+  const handleDeleteTournament = async (tourneyId) => {
+    try {
+      await fetch(`${TOURNAMENTS_API_URL}/${tourneyId}`, { method: 'DELETE' });
+      setTournamentsHistory((prev) => prev.filter((t) => t.id !== tourneyId));
+      if (activeTournament?.id === tourneyId) setActiveTournament(null);
+    } catch (err) {}
+  };
+
+  const handleSaveTourneyFixtureScore = async () => {
+    if (!activeTournament || !tourneyScoreModalFixture) return;
+    const sA = tourneyScoreA.trim() === '' ? null : Number(tourneyScoreA);
+    const sB = tourneyScoreB.trim() === '' ? null : Number(tourneyScoreB);
+
+    if (tourneyScoreModalFixture.stage !== 'group' && sA !== null && sB !== null && sA === sB) {
+      Alert.alert('مباراة إقصائية!', 'في خروج المغلوب لا يمكن التعادل، حدد الفائز!');
+      return;
+    }
+
+    let updatedFixtures = (activeTournament.fixtures_data || []).map((f) => {
+      if (f.matchId !== tourneyScoreModalFixture.matchId) return f;
+      let winnerId =
+        sA !== null && sB !== null ? (sA > sB ? f.teamAId : sB > sA ? f.teamBId : null) : null;
+      return { ...f, scoreA: sA, scoreB: sB, winnerId };
+    });
+
+    const koRoundMatches = updatedFixtures.filter(
+      (f) => f.stage === 'knockout_r1' || f.stage === 'knockout_bye'
+    );
+    const hasFinalAlready = updatedFixtures.some((f) => f.stage === 'final');
+
+    if (
+      koRoundMatches.length >= 2 &&
+      !hasFinalAlready &&
+      koRoundMatches.every((f) => f.winnerId !== null)
+    ) {
+      const winnersIds = koRoundMatches.map((f) => f.winnerId);
+      const teamsMap = {};
+      (activeTournament.teams_data || []).forEach((t) => (teamsMap[t.teamId] = t.name));
+
+      for (let i = 0; i < winnersIds.length; i += 2) {
+        if (i + 1 < winnersIds.length) {
+          updatedFixtures.push({
+            matchId: `FINAL-${Date.now()}-${i}`,
+            stage: 'final',
+            stageLabel: winnersIds.length === 2 ? '🏆 المباراة النهائية' : 'الدور الإقصائي المتقدم',
+            teamAId: winnersIds[i],
+            teamAName: teamsMap[winnersIds[i]] || 'المتأهل 1',
+            teamBId: winnersIds[i + 1],
+            teamBName: teamsMap[winnersIds[i + 1]] || 'المتأهل 2',
+            scoreA: null,
+            scoreB: null,
+            winnerId: null,
+          });
+        }
+      }
+    }
+
+    try {
+      const res = await fetch(`${TOURNAMENTS_API_URL}/${activeTournament.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fixtures_data: updatedFixtures }),
+      });
+      const updatedTourney = await res.json();
+      if (res.ok) {
+        setActiveTournament(updatedTourney);
+        setTournamentsHistory((prev) =>
+          prev.map((t) => (t.id === updatedTourney.id ? updatedTourney : t))
+        );
+        setTourneyScoreModalFixture(null);
+      }
+    } catch (err) {}
+  };
+
+  const handleAdvanceGroupToKnockout = async () => {
+    if (!activeTournament) return;
+    const standings = computeTournamentStandings(
+      activeTournament.teams_data || [],
+      activeTournament.fixtures_data || []
+    );
+    if (
+      (activeTournament.fixtures_data || []).some(
+        (f) => f.stage === 'knockout_r1' || f.stage === 'final'
+      )
+    ) {
+      Alert.alert('تنبيه', 'تم توليد مرحلة الإقصاء مسبقاً!');
+      return;
+    }
+
+    let newKoFixtures = [];
+    if (standings.length >= 4) {
+      newKoFixtures = [
+        {
+          matchId: `KO-SF1-${Date.now()}`,
+          stage: 'knockout_r1',
+          stageLabel: '🔥 نصف النهائي 1 (الأول × الرابع)',
+          teamAId: standings[0].teamId,
+          teamAName: standings[0].name,
+          teamBId: standings[3].teamId,
+          teamBName: standings[3].name,
+          scoreA: null,
+          scoreB: null,
+          winnerId: null,
+        },
+        {
+          matchId: `KO-SF2-${Date.now() + 1}`,
+          stage: 'knockout_r1',
+          stageLabel: '🔥 نصف النهائي 2 (الثاني × الثالث)',
+          teamAId: standings[1].teamId,
+          teamAName: standings[1].name,
+          teamBId: standings[2].teamId,
+          teamBName: standings[2].name,
+          scoreA: null,
+          scoreB: null,
+          winnerId: null,
+        },
+      ];
+    } else if (standings.length >= 2) {
+      newKoFixtures = [
+        {
+          matchId: `FINAL-${Date.now()}`,
+          stage: 'final',
+          stageLabel: '🏆 المباراة النهائية (الأول × الثاني)',
+          teamAId: standings[0].teamId,
+          teamAName: standings[0].name,
+          teamBId: standings[1].teamId,
+          teamBName: standings[1].name,
+          scoreA: null,
+          scoreB: null,
+          winnerId: null,
+        },
+      ];
+    }
+
+    const updatedFixtures = [...(activeTournament.fixtures_data || []), ...newKoFixtures];
+    try {
+      const res = await fetch(`${TOURNAMENTS_API_URL}/${activeTournament.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fixtures_data: updatedFixtures }),
+      });
+      const updatedTourney = await res.json();
+      if (res.ok) setActiveTournament(updatedTourney);
+    } catch (err) {}
+  };
+
+  const handleOpenTourneyFixtureOnPitch = (fixture) => {
+    if (!activeTournament || !fixture.teamBId) return;
+    const teams = activeTournament.teams_data || [];
+    const tA = teams.find((t) => t.teamId === fixture.teamAId);
+    const tB = teams.find((t) => t.teamId === fixture.teamBId);
+    if (!tA || !tB) return;
+
+    setTeamAName(tA.name);
+    setTeamBName(tB.name);
+    setTeamAColor(tA.color || '#16A34A');
+    setTeamBColor(tB.color || '#2563EB');
+    const balancedA = prepareTeamForPitch(tA.players || []);
+    const balancedB = prepareTeamForPitch(tB.players || []);
+    setTeamA(balancedA);
+    setTeamB(balancedB);
+    setTotalExtracted(balancedA.length + balancedB.length);
+    setTeamARatingTotal(balancedA.reduce((s, p) => s + p.rating, 0));
+    setTeamBRatingTotal(balancedB.reduce((s, p) => s + p.rating, 0));
+    setMainScreen('divide');
+    setActiveTab('pitch');
+  };
+
+  const handleSaveCurrentMatch = async (sourceType) => {
+    const teamAPlayersToSave =
+      sourceType === 'divide' ? teamA : draftSlotsA.filter((s) => s.player).map((s) => s.player);
+    const teamBPlayersToSave =
+      sourceType === 'divide' ? teamB : draftSlotsB.filter((s) => s.player).map((s) => s.player);
+    if (teamAPlayersToSave.length === 0 && teamBPlayersToSave.length === 0) return;
+
+    try {
+      const res = await fetch(MATCHES_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team_a_name: teamAName,
+          team_b_name: teamBName,
+          team_a_color: teamAColor,
+          team_b_color: teamBColor,
+          formation:
+            sourceType === 'divide'
+              ? 'لستة واتساب'
+              : `${draftDefCount}-${draftMidCount}-${draftAttCount}`,
+          team_a_players: teamAPlayersToSave,
+          team_b_players: teamBPlayersToSave,
+        }),
+      });
+      if (res.ok) {
+        await fetchMatchesList();
+        Alert.alert('✅ تم الحفظ', 'تم حفظ التشكيلة في سجل المباريات!');
+      }
+    } catch (err) {}
+  };
+
+  const handleSaveScore = async () => {
+    if (!scoreModalMatch) return;
+    try {
+      const res = await fetch(`${MATCHES_API_URL}/${scoreModalMatch.id}/score`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team_a_score: modalScoreA.trim() === '' ? null : Number(modalScoreA),
+          team_b_score: modalScoreB.trim() === '' ? null : Number(modalScoreB),
+          mvp_player_name: selectedMvpName || null,
+          apply_rating_boost: applyRatingBoost,
+        }),
+      });
+      if (res.ok) {
+        await fetchMatchesList();
+        await fetchSavedPlayers();
+        setScoreModalMatch(null);
+      }
+    } catch (err) {}
+  };
+
+  const handleDeleteMatch = async (match) => {
+    await fetch(`${MATCHES_API_URL}/${match.id}`, { method: 'DELETE' });
+    setMatchesList((prev) => prev.filter((m) => m.id !== match.id));
+  };
+
+  const handleLoadMatchToPitch = (match) => {
+    setTeamAName(match.team_a_name || 'فريق A');
+    setTeamBName(match.team_b_name || 'فريق B');
+    setTeamAColor(match.team_a_color || '#16A34A');
+    setTeamBColor(match.team_b_color || '#2563EB');
+    const balancedA = prepareTeamForPitch(match.team_a_players || []);
+    const balancedB = prepareTeamForPitch(match.team_b_players || []);
+    setTeamA(balancedA);
+    setTeamB(balancedB);
+    setTotalExtracted(balancedA.length + balancedB.length);
+    setTeamARatingTotal(balancedA.reduce((s, p) => s + p.rating, 0));
+    setTeamBRatingTotal(balancedB.reduce((s, p) => s + p.rating, 0));
+    setMainScreen('divide');
+    setActiveTab('pitch');
+  };
+
+  const updateFormationCounts = (newDef, newMid, newAtt) => {
+    const d = Math.min(Math.max(newDef, 1), 8);
+    const m = Math.min(Math.max(newMid, 1), 8);
+    const a = Math.min(Math.max(newAtt, 1), 8);
+    setDraftDefCount(d);
+    setDraftMidCount(m);
+    setDraftAttCount(a);
+
+    const rebuildSlots = (teamKey, oldSlots) => {
+      const oldGks = oldSlots.filter((s) => s.position === 'حارس' && s.player).map((s) => s.player);
+      const oldDefs = oldSlots.filter((s) => s.position === 'دفاع' && s.player).map((s) => s.player);
+      const oldMids = oldSlots.filter((s) => s.position === 'وسط' && s.player).map((s) => s.player);
+      const oldAtts = oldSlots.filter((s) => s.position === 'هجوم' && s.player).map((s) => s.player);
+
+      const slots = [
+        {
+          slotId: `${teamKey}-GK-0`,
+          teamKey,
+          position: 'حارس',
+          isGoalkeeper: true,
+          player: oldGks[0] || null,
+        },
+      ];
+      for (let i = 0; i < d; i++)
+        slots.push({
+          slotId: `${teamKey}-DEF-${i}`,
+          teamKey,
+          position: 'دفاع',
+          isGoalkeeper: false,
+          player: oldDefs[i] || null,
+        });
+      for (let i = 0; i < m; i++)
+        slots.push({
+          slotId: `${teamKey}-MID-${i}`,
+          teamKey,
+          position: 'وسط',
+          isGoalkeeper: false,
+          player: oldMids[i] || null,
+        });
+      for (let i = 0; i < a; i++)
+        slots.push({
+          slotId: `${teamKey}-ATT-${i}`,
+          teamKey,
+          position: 'هجوم',
+          isGoalkeeper: false,
+          player: oldAtts[i] || null,
+        });
+      return slots;
+    };
+
+    setDraftSlotsA((prev) => rebuildSlots('A', prev));
+    setDraftSlotsB((prev) => rebuildSlots('B', prev));
+    setSelectedDraftSlotId(null);
+  };
+
+  const resetDraftPitch = () => {
+    setDraftSlotsA(createEmptyFormationSlots('A', draftDefCount, draftMidCount, draftAttCount));
+    setDraftSlotsB(createEmptyFormationSlots('B', draftDefCount, draftMidCount, draftAttCount));
+    setSelectedDraftSlotId(null);
+  };
+
+  const getSortedPlayersForPosition = (targetPosition) => {
+    const usedIds = new Set();
+    [...draftSlotsA, ...draftSlotsB].forEach((s) => s.player?.id && usedIds.add(s.player.id));
+    const currentId = activeSlotForModal?.player?.id;
+    const available = savedPlayers.filter((p) => !usedIds.has(p.id) || p.id === currentId);
+
+    return {
+      primaryMatches: available.filter((p) => p.primary_position === targetPosition),
+      secondaryMatches: available.filter(
+        (p) =>
+          p.primary_position !== targetPosition &&
+          Array.isArray(p.secondary_positions) &&
+          p.secondary_positions.includes(targetPosition)
+      ),
+      otherPlayers: available.filter(
+        (p) =>
+          p.primary_position !== targetPosition &&
+          (!Array.isArray(p.secondary_positions) ||
+            !p.secondary_positions.includes(targetPosition))
+      ),
+    };
+  };
+
+  const assignPlayerToDraftSlot = (playerObj) => {
+    if (!activeSlotForModal) return;
+    const { slotId, teamKey } = activeSlotForModal;
+    const updater = (slots) =>
+      slots.map((s) => (s.slotId === slotId ? { ...s, player: playerObj } : s));
+    if (teamKey === 'A') setDraftSlotsA(updater);
+    else setDraftSlotsB(updater);
+    setActiveSlotForModal(null);
+  };
+
+  const clearSingleDraftSlot = (slot) => {
+    const updater = (slots) =>
+      slots.map((s) => (s.slotId === slot.slotId ? { ...s, player: null } : s));
+    if (slot.teamKey === 'A') setDraftSlotsA(updater);
+    else setDraftSlotsB(updater);
+    setActiveSlotForModal(null);
+  };
+
+  const handleDraftSlotPress = (slot) => {
+    if (selectedDraftSlotId) {
+      if (selectedDraftSlotId !== slot.slotId) {
+        const allSlots = [...draftSlotsA, ...draftSlotsB];
+        const firstSlot = allSlots.find((s) => s.slotId === selectedDraftSlotId);
+        if (firstSlot) {
+          const p1 = firstSlot.player;
+          const p2 = slot.player;
+          const updateList = (list) =>
+            list.map((s) =>
+              s.slotId === firstSlot.slotId
+                ? { ...s, player: p2 }
+                : s.slotId === slot.slotId
+                ? { ...s, player: p1 }
+                : s
+            );
+          setDraftSlotsA(updateList);
+          setDraftSlotsB(updateList);
+        }
+      }
+      setSelectedDraftSlotId(null);
+      return;
+    }
+    setActiveSlotForModal(slot);
+  };
+
+  const handleAutoBalanceSelectedPlayers = async () => {
+    const chosenPlayers = savedPlayers.filter((p) => selectedPlayerIdsForAuto.includes(p.id));
+    if (chosenPlayers.length < 2) return;
+    setDraftLoading(true);
+    try {
+      const res = await fetch(DRAFT_BALANCE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          players: chosenPlayers,
+          formation: { def: draftDefCount, mid: draftMidCount, att: draftAttCount },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return;
+
+      const teamAList = data.teamA || [];
+      const teamBList = data.teamB || [];
+      const actualDefCount = Math.max(
+        1,
+        teamAList.filter((p) => !p.isGoalkeeper && p.position === 'دفاع').length,
+        teamBList.filter((p) => !p.isGoalkeeper && p.position === 'دفاع').length
+      );
+      const actualMidCount = Math.max(
+        1,
+        teamAList.filter((p) => !p.isGoalkeeper && p.position === 'وسط').length,
+        teamBList.filter((p) => !p.isGoalkeeper && p.position === 'وسط').length
+      );
+      const actualAttCount = Math.max(
+        1,
+        teamAList.filter((p) => !p.isGoalkeeper && p.position === 'هجوم').length,
+        teamBList.filter((p) => !p.isGoalkeeper && p.position === 'هجوم').length
+      );
+
+      setDraftDefCount(actualDefCount);
+      setDraftMidCount(actualMidCount);
+      setDraftAttCount(actualAttCount);
+
+      const fillTeamSlots = (teamKey, teamPlayers, dCount, mCount, aCount) => {
+        const gks = teamPlayers.filter((p) => p.isGoalkeeper || p.position === 'حارس');
+        const defs = teamPlayers.filter((p) => !p.isGoalkeeper && p.position === 'دفاع');
+        const mids = teamPlayers.filter((p) => !p.isGoalkeeper && p.position === 'وسط');
+        const atts = teamPlayers.filter((p) => !p.isGoalkeeper && p.position === 'هجوم');
+        const slots = [
+          {
+            slotId: `${teamKey}-GK-0`,
+            teamKey,
+            position: 'حارس',
+            isGoalkeeper: true,
+            player: gks[0] || null,
+          },
+        ];
+        for (let i = 0; i < dCount; i++)
+          slots.push({
+            slotId: `${teamKey}-DEF-${i}`,
+            teamKey,
+            position: 'دفاع',
+            isGoalkeeper: false,
+            player: defs[i] || null,
+          });
+        for (let i = 0; i < mCount; i++)
+          slots.push({
+            slotId: `${teamKey}-MID-${i}`,
+            teamKey,
+            position: 'وسط',
+            isGoalkeeper: false,
+            player: mids[i] || null,
+          });
+        for (let i = 0; i < aCount; i++)
+          slots.push({
+            slotId: `${teamKey}-ATT-${i}`,
+            teamKey,
+            position: 'هجوم',
+            isGoalkeeper: false,
+            player: atts[i] || null,
+          });
+        return slots;
+      };
+
+      setDraftSlotsA(fillTeamSlots('A', teamAList, actualDefCount, actualMidCount, actualAttCount));
+      setDraftSlotsB(fillTeamSlots('B', teamBList, actualDefCount, actualMidCount, actualAttCount));
+      setMultiSelectModalVisible(false);
+    } catch (err) {
+    } finally {
+      setDraftLoading(false);
+    }
+  };
+
+  const draftTeamATotal = draftSlotsA.reduce(
+    (sum, s) => sum + (s.player ? Number(s.player.rating) : 0),
+    0
+  );
+  const draftTeamBTotal = draftSlotsB.reduce(
+    (sum, s) => sum + (s.player ? Number(s.player.rating) : 0),
+    0
+  );
+
+  const handleShareDraftAsImage = async () => {
+    if (!draftPitchRef.current) return;
+    const uri = await captureRef(draftPitchRef, { format: 'png', quality: 1 });
+    await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'مشاركة تشكيلة قِسمه' });
+  };
+
+  const handleShareDraftAsText = async () => {
+    const filledA = draftSlotsA.filter((s) => s.player);
+    const filledB = draftSlotsB.filter((s) => s.player);
+    const formatSlot = (s, idx) =>
+      `${idx + 1}- ${s.position === 'حارس' ? '🧤 ' : ''}${s.player.name} (${s.position})`;
+    const message =
+      `⚽ *تشكيلة قِسمه* ⚽\n\n` +
+      `${getKitEmojiByHex(teamAColor, 'A')} *${teamAName} (⭐ ${draftTeamATotal}):*\n${filledA
+        .map(formatSlot)
+        .join('\n')}\n\n` +
+      `${getKitEmojiByHex(teamBColor, 'B')} *${teamBName} (⭐ ${draftTeamBTotal}):*\n${filledB
+        .map(formatSlot)
+        .join('\n')}`;
+    await Share.share({ message });
+  };
+
+  const resetPlayerForm = () => {
+    setEditingPlayerId(null);
+    setPlayerNameInput('');
+    setPlayerRatingInput('80');
+    setPrimaryPosInput('وسط');
+    setSecondaryPosInput([]);
+  };
+
+  const handleSavePlayer = async () => {
+    if (!playerNameInput.trim()) return;
+    const isEditing = editingPlayerId !== null;
+    const url = isEditing ? `${PLAYERS_API_URL}/${editingPlayerId}` : PLAYERS_API_URL;
+    const res = await fetch(url, {
+      method: isEditing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: playerNameInput.trim(),
+        rating: Number(playerRatingInput) || 75,
+        primary_position: primaryPosInput,
+        secondary_positions: secondaryPosInput,
+      }),
+    });
+    if (res.ok) {
+      await fetchSavedPlayers();
+      resetPlayerForm();
+    }
+  };
+
+  const handleDeletePlayer = async (player) => {
+    await fetch(`${PLAYERS_API_URL}/${player.id}`, { method: 'DELETE' });
+    setSavedPlayers((prev) => prev.filter((p) => p.id !== player.id));
+  };
+
+  const handleDivideTeams = async () => {
+    if (!rawText.trim()) return;
+    setLoading(true);
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawText }),
-        signal: controller.signal,
+        body: JSON.stringify({ rawText, userRole }),
       });
-
-      clearTimeout(timeoutId);
       const data = await response.json();
-
-      if (!response.ok) {
-        Alert.alert('خطأ', data.error || 'حدث خطأ أثناء التحليل');
-        setLoading(false);
-        return;
+      if (response.ok) {
+        const balancedA = prepareTeamForPitch(data.teamA || []);
+        const balancedB = prepareTeamForPitch(data.teamB || []);
+        setTeamA(balancedA);
+        setTeamB(balancedB);
+        setTotalExtracted(data.totalExtracted || 0);
+        setTeamARatingTotal(balancedA.reduce((s, p) => s + p.rating, 0));
+        setTeamBRatingTotal(balancedB.reduce((s, p) => s + p.rating, 0));
+        setAnalysisSource(userRole === 'guest' ? 'local' : data.analysisSource || 'ai');
+        setActiveTab('pitch');
+        if (isLoggedUser) fetchSavedPlayers();
       }
-
-      const balancedTeamA = prepareTeamForPitch(data.teamA || []);
-      const balancedTeamB = prepareTeamForPitch(data.teamB || []);
-
-      setTeamA(balancedTeamA);
-      setTeamB(balancedTeamB);
-      setTotalExtracted(data.totalExtracted || 0);
-      setGoalkeepersCount(data.goalkeepersCount || 0);
-      setWasRounded(data.wasRounded || false);
-      setTeamARatingTotal(balancedTeamA.reduce((s, p) => s + p.rating, 0));
-      setTeamBRatingTotal(balancedTeamB.reduce((s, p) => s + p.rating, 0));
-      setAnalysisSource(data.analysisSource || 'ai');
-      setSelectedPlayerId(null);
-      setActiveTab('pitch');
-    } catch (error) {
-      clearTimeout(timeoutId);
-      Alert.alert('❌ فشل الاتصال', `تأكد أن سيرفر الباك إند شغال.\nالخطأ: ${error.message}`);
+    } catch (err) {
     } finally {
       setLoading(false);
     }
   };
 
-  const recalculateTotals = (newA, newB) => {
-    const sumA = newA.reduce((s, p) => s + p.rating, 0);
-    const sumB = newB.reduce((s, p) => s + p.rating, 0);
-    setTeamARatingTotal(sumA);
-    setTeamBRatingTotal(sumB);
-  };
-
-  // تبديل لاعبين (يتبادلون الفريق + المركز في الملعب بما في ذلك الحارس!)
   const handlePlayerPress = (clickedPlayerId) => {
     if (!selectedPlayerId) {
       setSelectedPlayerId(clickedPlayerId);
-    } else {
-      if (selectedPlayerId === clickedPlayerId) {
-        setSelectedPlayerId(null);
-        return;
-      }
+      return;
+    }
+    if (selectedPlayerId !== clickedPlayerId) {
+      let newA = [...teamA],
+        newB = [...teamB];
+      let idxA1 = newA.findIndex((p) => p.uniqueId === selectedPlayerId),
+        idxB1 = newB.findIndex((p) => p.uniqueId === selectedPlayerId);
+      let idxA2 = newA.findIndex((p) => p.uniqueId === clickedPlayerId),
+        idxB2 = newB.findIndex((p) => p.uniqueId === clickedPlayerId);
+      let p1 = idxA1 !== -1 ? newA[idxA1] : newB[idxB1],
+        p2 = idxA2 !== -1 ? newA[idxA2] : newB[idxB2];
 
-      let newA = [...teamA];
-      let newB = [...teamB];
-
-      let idxA1 = newA.findIndex((p) => p.uniqueId === selectedPlayerId);
-      let idxB1 = newB.findIndex((p) => p.uniqueId === selectedPlayerId);
-      let idxA2 = newA.findIndex((p) => p.uniqueId === clickedPlayerId);
-      let idxB2 = newB.findIndex((p) => p.uniqueId === clickedPlayerId);
-
-      let player1 = idxA1 !== -1 ? newA[idxA1] : newB[idxB1];
-      let player2 = idxA2 !== -1 ? newA[idxA2] : newB[idxB2];
-
-      // تبادل المراكز ومهام الحراسة بين اللاعبين ليأخذ كل واحد مكان الآخر في الملعب
-      const swappedPlayer1 = {
-        ...player1,
-        position: player2.position,
-        isGoalkeeper: player2.isGoalkeeper || player2.position === 'حارس',
+      const swap1 = {
+        ...p1,
+        position: p2.position,
+        isGoalkeeper: p2.isGoalkeeper || p2.position === 'حارس',
       };
-      const swappedPlayer2 = {
-        ...player2,
-        position: player1.position,
-        isGoalkeeper: player1.isGoalkeeper || player1.position === 'حارس',
+      const swap2 = {
+        ...p2,
+        position: p1.position,
+        isGoalkeeper: p1.isGoalkeeper || p1.position === 'حارس',
       };
-
-      if (idxA1 !== -1) newA[idxA1] = swappedPlayer2;
-      else newB[idxB1] = swappedPlayer2;
-
-      if (idxA2 !== -1) newA[idxA2] = swappedPlayer1;
-      else newB[idxB2] = swappedPlayer1;
-
+      if (idxA1 !== -1) newA[idxA1] = swap2;
+      else newB[idxB1] = swap2;
+      if (idxA2 !== -1) newA[idxA2] = swap1;
+      else newB[idxB2] = swap1;
       setTeamA(newA);
       setTeamB(newB);
-      recalculateTotals(newA, newB);
-      setSelectedPlayerId(null);
+      setTeamARatingTotal(newA.reduce((s, p) => s + p.rating, 0));
+      setTeamBRatingTotal(newB.reduce((s, p) => s + p.rating, 0));
     }
-  };
-
-  // تغيير مركز اللاعب عند الضغط على اسمه تحت الكرت (أو ضغطة مطولة على الكرت)
-  const cyclePlayerPosition = (targetTeamKey, uniqueId) => {
-    const positionsOrder = ['وسط', 'دفاع', 'هجوم', 'حارس'];
-    let newA = [...teamA];
-    let newB = [...teamB];
-
-    let targetList = targetTeamKey === 'A' ? newA : newB;
-    let idx = targetList.findIndex((p) => p.uniqueId === uniqueId);
-    if (idx === -1) return;
-
-    let player = { ...targetList[idx] };
-    let currentPos = player.isGoalkeeper ? 'حارس' : player.position;
-    let nextPosIdx = (positionsOrder.indexOf(currentPos) + 1) % positionsOrder.length;
-    let nextPos = positionsOrder[nextPosIdx];
-
-    // إذا حولناه إلى حارس وكان هناك حارس موجود، نضع الحارس القديم في مركز هذا اللاعب
-    if (nextPos === 'حارس') {
-      let existingGkIdx = targetList.findIndex(
-        (p, i) => (p.isGoalkeeper || p.position === 'حارس') && i !== idx
-      );
-      if (existingGkIdx !== -1) {
-        targetList[existingGkIdx] = {
-          ...targetList[existingGkIdx],
-          position: currentPos === 'حارس' ? 'دفاع' : currentPos,
-          isGoalkeeper: false,
-        };
-      }
-    }
-
-    player.position = nextPos;
-    player.isGoalkeeper = nextPos === 'حارس';
-    targetList[idx] = player;
-
-    setTeamA(newA);
-    setTeamB(newB);
-    recalculateTotals(newA, newB);
-  };
-
-  const handleShareAsImage = async () => {
-    try {
-      if (!pitchRef.current) return;
-      const uri = await captureRef(pitchRef, {
-        format: 'png',
-        quality: 1,
-      });
-
-      await Sharing.shareAsync(uri, {
-        mimeType: 'image/png',
-        dialogTitle: 'مشاركة تشكيلة قِسمه',
-        utt: 'public.png',
-      });
-    } catch (error) {
-      Alert.alert('خطأ', 'حدث خطأ أثناء تصوير التشكيلة: ' + error.message);
-    }
-  };
-
-  const handleClear = () => {
-    setRawText('');
-    setTeamA([]);
-    setTeamB([]);
-    setTotalExtracted(0);
-    setGoalkeepersCount(0);
-    setWasRounded(false);
-    setTeamARatingTotal(0);
-    setTeamBRatingTotal(0);
     setSelectedPlayerId(null);
   };
 
-  const getFifaPosCode = (pos) => {
-    if (pos === 'حارس') return 'GK';
-    if (pos === 'دفاع') return 'CB';
-    if (pos === 'هجوم') return 'ST';
-    return 'CM';
+  const cyclePlayerPosition = (targetTeamKey, uniqueId) => {
+    const order = ['وسط', 'دفاع', 'هجوم', 'حارس'];
+    let newA = [...teamA],
+      newB = [...teamB];
+    let list = targetTeamKey === 'A' ? newA : newB;
+    let idx = list.findIndex((p) => p.uniqueId === uniqueId);
+    if (idx === -1) return;
+    let curPos = list[idx].isGoalkeeper ? 'حارس' : list[idx].position;
+    let nextPos = order[(order.indexOf(curPos) + 1) % order.length];
+    list[idx] = { ...list[idx], position: nextPos, isGoalkeeper: nextPos === 'حارس' };
+    setTeamA(newA);
+    setTeamB(newB);
   };
 
-  const getCardStyleByRating = (rating, isGk) => {
-    if (isGk) return { bg: '#F97316', border: '#FED7AA', text: '#FFFFFF' };
-    if (rating >= 85) return { bg: '#EAB308', border: '#FEF08A', text: '#1F2937' };
-    if (rating >= 72) return { bg: '#CBD5E1', border: '#F8FAFC', text: '#1E293B' };
-    return { bg: '#B45309', border: '#FDE68A', text: '#FFFFFF' };
-  };
-
-  const renderFifaCard = (player, teamKey) => {
-    const isGk = player.position === 'حارس' || player.isGoalkeeper;
-    const cardTheme = getCardStyleByRating(player.rating, isGk);
-    const posCode = getFifaPosCode(isGk ? 'حارس' : player.position);
-    const kitEmoji = isGk ? '🧤' : teamKey === 'A' ? '🟢' : '🔵';
-    const isSelected = selectedPlayerId === player.uniqueId;
-
+  const renderSubscriberTeamsCustomization = () => {
+    if (!isSubscriber) return null;
     return (
-      <View key={player.uniqueId} style={styles.fifaPlayerWrapper}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => handlePlayerPress(player.uniqueId)}
-          onLongPress={() => cyclePlayerPosition(teamKey, player.uniqueId)}
-          style={[
-            styles.fifaCardBody,
-            { backgroundColor: cardTheme.bg, borderColor: cardTheme.border },
-            isSelected && styles.selectedCardForSwap,
-          ]}
-        >
-          <View style={styles.fifaCardTopRow}>
-            <View style={styles.fifaRatingCol}>
-              <Text style={[styles.fifaRatingNum, { color: cardTheme.text }]}>{player.rating}</Text>
-              <Text style={[styles.fifaPosCode, { color: cardTheme.text }]}>{posCode}</Text>
-            </View>
-            <Text style={styles.fifaKitIcon}>{kitEmoji}</Text>
+      <View style={styles.subscriberBox}>
+        <View style={styles.labelRow}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity
+              style={styles.saveTeamMiniBtn}
+              onPress={() => handleSavePresetTeam('B')}
+            >
+              <Text style={styles.saveTeamMiniBtnText}>💾 حفظ فريق 2</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.saveTeamMiniBtn}
+              onPress={() => handleSavePresetTeam('A')}
+            >
+              <Text style={styles.saveTeamMiniBtnText}>💾 حفظ فريق 1</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.fifaCardInnerLine} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          hitSlop={{ top: 4, bottom: 8, left: 6, right: 6 }}
-          onPress={() => cyclePlayerPosition(teamKey, player.uniqueId)}
-          style={[styles.fifaNamePlate, isSelected && styles.selectedNamePlate]}
-        >
-          <Text style={styles.fifaPlayerName} numberOfLines={1}>
-            {player.name}
-          </Text>
-        </TouchableOpacity>
+          <Text style={styles.subscriberBoxTitle}>💎 تخصيص الأطقم والفرق المحفوظة:</Text>
+        </View>
+        <View style={styles.kitColorsContainer}>
+          <View style={styles.kitColorColumn}>
+            <View style={styles.colorSwatchesRow}>
+              {KIT_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={`B-${c.hex}`}
+                  style={[
+                    styles.colorSwatchCircle,
+                    { backgroundColor: c.hex },
+                    teamBColor === c.hex && styles.colorSwatchActive,
+                  ]}
+                  onPress={() => setTeamBColor(c.hex)}
+                />
+              ))}
+            </View>
+          </View>
+          <View style={styles.kitColorColumn}>
+            <View style={styles.colorSwatchesRow}>
+              {KIT_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={`A-${c.hex}`}
+                  style={[
+                    styles.colorSwatchCircle,
+                    { backgroundColor: c.hex },
+                    teamAColor === c.hex && styles.colorSwatchActive,
+                  ]}
+                  onPress={() => setTeamAColor(c.hex)}
+                />
+              ))}
+            </View>
+          </View>
+        </View>
       </View>
     );
   };
 
-  const getTeamLines = (team) => {
-    const gks = team.filter((p) => p.position === 'حارس' || p.isGoalkeeper);
-    const defs = team.filter((p) => !p.isGoalkeeper && p.position === 'دفاع');
-    const mids = team.filter((p) => !p.isGoalkeeper && p.position === 'وسط');
-    const atts = team.filter((p) => !p.isGoalkeeper && p.position === 'هجوم');
-    return { gks, defs, mids, atts };
-  };
-
-  const linesB = getTeamLines(teamB);
-  const linesA = getTeamLines(teamA);
+  const tourneyStandings = activeTournament
+    ? computeTournamentStandings(
+        activeTournament.teams_data || [],
+        activeTournament.fixtures_data || []
+      )
+    : [];
+  const finalMatchObj = (activeTournament?.fixtures_data || []).find(
+    (f) => f.stage === 'final' && f.winnerId
+  );
+  const championTeam = finalMatchObj
+    ? (activeTournament?.teams_data || []).find((t) => t.teamId === finalMatchObj.winnerId)
+    : null;
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1B4332" />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        
-        <View style={styles.header}>
-          <Text style={styles.title}>⚽ تطبيق قِسمه</Text>
-          <Text style={styles.subtitle}>ملعب فيفا • تبديل الحراس والمراكز • أسماء صافية</Text>
-        </View>
+        <HeaderBar
+          userRole={userRole}
+          currentUsername={currentUsername}
+          onOpenAuthModal={() => setAuthModalVisible(true)}
+          onSwitchRole={(r) => {
+            setUserRole(r);
+            setMainScreen('home');
+          }}
+          mainScreen={mainScreen}
+          onGoHome={() => setMainScreen('home')}
+        />
 
-        <View style={styles.card}>
-          <Text style={styles.label}>الصق لستة الواتساب هنا:</Text>
-          <TextInput
-            style={styles.textInput}
-            multiline
-            placeholder="الصق رسالة الواتساب هنا..."
-            placeholderTextColor="#999"
-            value={rawText}
-            onChangeText={setRawText}
-            textAlign="right"
+        {mainScreen === 'home' ? (
+          <HomeScreen
+            userRole={userRole}
+            onNavigate={(scr) => setMainScreen(scr)}
+            playersCount={savedPlayers.length}
+            teamsCount={savedTeams.length}
+            matchesCount={matchesList.length}
+            tournamentsCount={tournamentsHistory.length}
           />
-
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.clearButton} onPress={handleClear} disabled={loading}>
-              <Text style={styles.clearButtonText}>مسح</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.primaryButton, loading && { opacity: 0.7 }]}
-              onPress={handleDivideTeams}
-              disabled={loading}
-            >
-              {loading ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color="#FFF" size="small" />
-                  <Text style={styles.primaryButtonText}> جاري التوزيع...</Text>
-                </View>
-              ) : (
-                <Text style={styles.primaryButtonText}>⚡ قسّم واعرض الملعب</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {teamA.length > 0 && (
-          <View style={styles.resultsContainer}>
-            
-            <View
-              style={[
-                styles.infoBanner,
-                analysisSource === 'local' && styles.infoBannerLocal,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.infoText,
-                  analysisSource === 'local' && styles.infoTextLocal,
-                ]}
-              >
-                {analysisSource === 'ai'
-                  ? `🤖 تم التحليل بالذكاء الاصطناعي (${totalExtracted} لاعب)`
-                  : `⚡ تم التحليل عبر المحلل المحلي (${totalExtracted} لاعب)`}
-                {selectedPlayerId ? '\n🔄 اضغط على أي لاعب آخر (أو حارس) لتبديل مكانيهما' : ''}
-              </Text>
-            </View>
-
-            <View style={styles.tabRow}>
-              <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'pitch' && styles.activeTab]}
-                onPress={() => setActiveTab('pitch')}
-              >
-                <Text style={[styles.tabText, activeTab === 'pitch' && styles.activeTabText]}>
-                  🏟️ الملعب المتكامل
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'list' && styles.activeTab]}
-                onPress={() => setActiveTab('list')}
-              >
-                <Text style={[styles.tabText, activeTab === 'list' && styles.activeTabText]}>
-                  📋 القائمة التفصيلية
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {activeTab === 'pitch' ? (
-              <View style={styles.unifiedPitchWrapper}>
-                
-                <View ref={pitchRef} collapsable={false} style={styles.unifiedSoccerPitch}>
-                  
-                  <View style={styles.pitchCenterLine} />
-                  <View style={styles.pitchCenterCircle} />
-                  <View style={styles.pitchCenterSpot} />
-                  <View style={styles.topPenaltyArea} />
-                  <View style={styles.bottomPenaltyArea} />
-
-                  {/* ===== النصف العلوي: الفريق الثاني (🔵) ===== */}
-                  <View style={styles.pitchHalf}>
-                    <View style={styles.teamHalfHeader}>
-                      <Text style={styles.teamHalfTitle}>🔵 الفريق الثاني (⭐ {teamBRatingTotal})</Text>
-                    </View>
-
-                    <View style={styles.pitchRow}>
-                      {linesB.gks.map((p) => renderFifaCard(p, 'B'))}
-                    </View>
-                    <View style={styles.pitchRow}>
-                      {linesB.defs.map((p) => renderFifaCard(p, 'B'))}
-                    </View>
-                    <View style={styles.pitchRow}>
-                      {linesB.mids.map((p) => renderFifaCard(p, 'B'))}
-                    </View>
-                    <View style={styles.pitchRow}>
-                      {linesB.atts.map((p) => renderFifaCard(p, 'B'))}
-                    </View>
-                  </View>
-
-                  {/* ===== النصف السفلي: الفريق الأول (🟢) ===== */}
-                  <View style={styles.pitchHalf}>
-                    <View style={styles.pitchRow}>
-                      {linesA.atts.map((p) => renderFifaCard(p, 'A'))}
-                    </View>
-                    <View style={styles.pitchRow}>
-                      {linesA.mids.map((p) => renderFifaCard(p, 'A'))}
-                    </View>
-                    <View style={styles.pitchRow}>
-                      {linesA.defs.map((p) => renderFifaCard(p, 'A'))}
-                    </View>
-                    <View style={styles.pitchRow}>
-                      {linesA.gks.map((p) => renderFifaCard(p, 'A'))}
-                    </View>
-
-                    <View style={styles.teamHalfHeaderBottom}>
-                      <Text style={styles.teamHalfTitle}>🟢 الفريق الأول (⭐ {teamARatingTotal})</Text>
-                    </View>
-                  </View>
-
-                </View>
-
-                <Text style={styles.pitchHintText}>
-                  💡 اضغط أي كرتين لتبديل مراكزهما (حتى مع الحارس) • اضغط اسم اللاعب لتغيير مركزه
-                </Text>
-              </View>
-            ) : (
-              /* 📋 القائمة التفصيلية للفريقين */
-              <View style={styles.teamsColumnWrapper}>
-                <View style={[styles.teamCard, styles.teamBCard]}>
-                  <Text style={styles.teamTitleB}>🔵 الفريق الثاني ({teamB.length})</Text>
-                  <Text style={styles.teamPower}>مجموع القوة: ⭐ {teamBRatingTotal}</Text>
-                  {teamB.map((player) => (
-                    <View key={player.uniqueId} style={styles.playerRow}>
-                      <View style={styles.ratingBadge}>
-                        <Text style={styles.ratingText}>{player.rating}</Text>
-                      </View>
-                      <View style={styles.playerInfo}>
-                        <Text style={styles.playerPosition}>({player.position})</Text>
-                        <Text style={styles.playerName}>
-                          {player.isGoalkeeper || player.position === 'حارس' ? '🧤 ' : ''}
-                          {player.name}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-
-                <View style={[styles.teamCard, styles.teamACard]}>
-                  <Text style={styles.teamTitleA}>🟢 الفريق الأول ({teamA.length})</Text>
-                  <Text style={styles.teamPower}>مجموع القوة: ⭐ {teamARatingTotal}</Text>
-                  {teamA.map((player) => (
-                    <View key={player.uniqueId} style={styles.playerRow}>
-                      <View style={styles.ratingBadge}>
-                        <Text style={styles.ratingText}>{player.rating}</Text>
-                      </View>
-                      <View style={styles.playerInfo}>
-                        <Text style={styles.playerPosition}>({player.position})</Text>
-                        <Text style={styles.playerName}>
-                          {player.isGoalkeeper || player.position === 'حارس' ? '🧤 ' : ''}
-                          {player.name}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            <TouchableOpacity style={styles.shareImageButton} onPress={handleShareAsImage}>
-              <Text style={styles.shareImageButtonText}>📸 مشاركة تشكيلة الملعب كصورة</Text>
-            </TouchableOpacity>
-
-          </View>
+        ) : isLoggedUser && mainScreen === 'tournament_create' ? (
+          <CreateTournamentScreen
+            tournamentName={tournamentName}
+            setTournamentName={setTournamentName}
+            tournamentType={tournamentType}
+            setTournamentType={setTournamentType}
+            tournamentTeamsCountInput={tournamentTeamsCountInput}
+            setTournamentTeamsCountInput={setTournamentTeamsCountInput}
+            savedPlayers={savedPlayers}
+            setSelectedPlayerIdsForTourney={setSelectedPlayerIdsForTourney}
+            setTournamentPlayersModal={setTournamentPlayersModal}
+            onGoToTournamentsList={() => setMainScreen('tournaments_list')}
+          />
+        ) : isLoggedUser && mainScreen === 'tournaments_list' ? (
+          <TournamentsListScreen
+            tournamentsHistory={tournamentsHistory}
+            onSelectTournament={(t) => {
+              setActiveTournament(t);
+              setMainScreen('tournament_details');
+            }}
+            onCreateNewTournament={() => setMainScreen('tournament_create')}
+            onDeleteTournament={handleDeleteTournament}
+          />
+        ) : isLoggedUser && mainScreen === 'tournament_details' ? (
+          <TournamentDetailsScreen
+            activeTournament={activeTournament}
+            championTeam={championTeam}
+            tourneyStandings={tourneyStandings}
+            handleAdvanceGroupToKnockout={handleAdvanceGroupToKnockout}
+            handleOpenTourneyFixtureOnPitch={handleOpenTourneyFixtureOnPitch}
+            setTourneyScoreModalFixture={setTourneyScoreModalFixture}
+            setTourneyScoreA={setTourneyScoreA}
+            setTourneyScoreB={setTourneyScoreB}
+            onBackToList={() => setMainScreen('tournaments_list')}
+            onGoToTeamsScreen={() => setMainScreen('teams')}
+          />
+        ) : isLoggedUser && mainScreen === 'teams' ? (
+          <TeamsScreen
+            savedTeams={savedTeams}
+            fetchSavedTeams={fetchSavedTeams}
+            onCreateTeam={handleCreateTeamRecord}
+            onUpdateTeam={handleUpdateTeamRecord}
+            onDeleteTeam={handleDeleteTeamRecord}
+            onUseTeamInMatch={(t) => {
+              applyPresetTeam(t, 'A');
+              setMainScreen('draft');
+            }}
+          />
+        ) : isLoggedUser && mainScreen === 'matches' ? (
+          <MatchesScreen
+            matchesList={matchesList}
+            loadingMatches={loadingMatches}
+            fetchMatchesList={fetchMatchesList}
+            handleDeleteMatch={handleDeleteMatch}
+            handleLoadMatchToPitch={handleLoadMatchToPitch}
+            setScoreModalMatch={setScoreModalMatch}
+            setModalScoreA={setModalScoreA}
+            setModalScoreB={setModalScoreB}
+            setSelectedMvpName={setSelectedMvpName}
+            setApplyRatingBoost={setApplyRatingBoost}
+          />
+        ) : isLoggedUser && mainScreen === 'players' ? (
+          <PlayersScreen
+            editingPlayerId={editingPlayerId}
+            playerRatingInput={playerRatingInput}
+            setPlayerRatingInput={setPlayerRatingInput}
+            playerNameInput={playerNameInput}
+            setPlayerNameInput={setPlayerNameInput}
+            primaryPosInput={primaryPosInput}
+            secondaryPosInput={secondaryPosInput}
+            handleSelectPrimaryPosition={(pos) => {
+              setPrimaryPosInput(pos);
+              setSecondaryPosInput((p) => p.filter((x) => x !== pos));
+            }}
+            handleToggleSecondaryPosition={(pos) =>
+              setSecondaryPosInput((p) =>
+                p.includes(pos) ? p.filter((x) => x !== pos) : [...p, pos]
+              )
+            }
+            resetPlayerForm={resetPlayerForm}
+            handleSavePlayer={handleSavePlayer}
+            savedPlayers={savedPlayers}
+            loadingPlayers={loadingPlayers}
+            fetchSavedPlayers={fetchSavedPlayers}
+            handleDeletePlayer={handleDeletePlayer}
+            handleEditPlayerClick={(p) => {
+              setEditingPlayerId(p.id);
+              setPlayerNameInput(p.name);
+              setPlayerRatingInput(String(p.rating));
+              setPrimaryPosInput(p.primary_position);
+              setSecondaryPosInput(p.secondary_positions || []);
+            }}
+          />
+        ) : isLoggedUser && mainScreen === 'draft' ? (
+          <DraftScreen
+            draftDefCount={draftDefCount}
+            draftMidCount={draftMidCount}
+            draftAttCount={draftAttCount}
+            updateFormationCounts={updateFormationCounts}
+            teamAName={teamAName}
+            setTeamAName={setTeamAName}
+            teamBName={teamBName}
+            setTeamBName={setTeamBName}
+            teamAColor={teamAColor}
+            teamBColor={teamBColor}
+            renderSubscriberTeamsCustomization={renderSubscriberTeamsCustomization}
+            resetDraftPitch={resetDraftPitch}
+            selectTopPlayersForFormation={() =>
+              setSelectedPlayerIdsForAuto(
+                savedPlayers
+                  .slice(0, (1 + draftDefCount + draftMidCount + draftAttCount) * 2)
+                  .map((p) => p.id)
+              )
+            }
+            setMultiSelectModalVisible={setMultiSelectModalVisible}
+            selectedDraftSlotId={selectedDraftSlotId}
+            setSelectedDraftSlotId={setSelectedDraftSlotId}
+            draftPitchRef={draftPitchRef}
+            draftSlotsA={draftSlotsA}
+            draftSlotsB={draftSlotsB}
+            draftTeamATotal={draftTeamATotal}
+            draftTeamBTotal={draftTeamBTotal}
+            handleDraftSlotPress={handleDraftSlotPress}
+            handleSaveCurrentMatch={handleSaveCurrentMatch}
+            handleShareDraftAsImage={handleShareDraftAsImage}
+            handleShareDraftAsText={handleShareDraftAsText}
+          />
+        ) : (
+          <DivideScreen
+            userRole={userRole}
+            isLoggedUser={isLoggedUser}
+            rawText={rawText}
+            setRawText={setRawText}
+            teamAName={teamAName}
+            setTeamAName={setTeamAName}
+            teamBName={teamBName}
+            setTeamBName={setTeamBName}
+            teamAColor={teamAColor}
+            teamBColor={teamBColor}
+            renderSubscriberTeamsCustomization={renderSubscriberTeamsCustomization}
+            loading={loading}
+            handleClear={() => {
+              setRawText('');
+              setTeamA([]);
+              setTeamB([]);
+            }}
+            handleDivideTeams={handleDivideTeams}
+            teamA={teamA}
+            teamB={teamB}
+            analysisSource={analysisSource}
+            totalExtracted={totalExtracted}
+            selectedPlayerId={selectedPlayerId}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            pitchRef={pitchRef}
+            teamARatingTotal={teamARatingTotal}
+            teamBRatingTotal={teamBRatingTotal}
+            handlePlayerPress={handlePlayerPress}
+            cyclePlayerPosition={cyclePlayerPosition}
+            handleSaveCurrentMatch={handleSaveCurrentMatch}
+            handleShareAsImage={async () => {
+              const uri = await captureRef(pitchRef, { format: 'png', quality: 1 });
+              await Sharing.shareAsync(uri);
+            }}
+            handleShareAsText={async () => {
+              const fmt = (p, i) => `${i + 1}- ${p.name} (${p.position})`;
+              await Share.share({
+                message: `${teamAName}:\n${teamA
+                  .map(fmt)
+                  .join('\n')}\n\n${teamBName}:\n${teamB.map(fmt).join('\n')}`,
+              });
+            }}
+          />
         )}
 
+        <AppModals
+          authModalVisible={authModalVisible}
+          setAuthModalVisible={setAuthModalVisible}
+          authUsernameInput={authUsernameInput}
+          setAuthUsernameInput={setAuthUsernameInput}
+          authPasswordInput={authPasswordInput}
+          setAuthPasswordInput={setAuthPasswordInput}
+          handleLoginSubmit={handleLoginSubmit}
+          activeSlotForModal={activeSlotForModal}
+          setActiveSlotForModal={setActiveSlotForModal}
+          sortedForModal={
+            activeSlotForModal
+              ? getSortedPlayersForPosition(activeSlotForModal.position)
+              : { primaryMatches: [], secondaryMatches: [], otherPlayers: [] }
+          }
+          assignPlayerToDraftSlot={assignPlayerToDraftSlot}
+          clearSingleDraftSlot={clearSingleDraftSlot}
+          setSelectedDraftSlotId={setSelectedDraftSlotId}
+          multiSelectModalVisible={multiSelectModalVisible}
+          setMultiSelectModalVisible={setMultiSelectModalVisible}
+          selectedPlayerIdsForAuto={selectedPlayerIdsForAuto}
+          setSelectedPlayerIdsForAuto={setSelectedPlayerIdsForAuto}
+          savedPlayers={savedPlayers}
+          toggleSelectPlayerForAuto={(id) =>
+            setSelectedPlayerIdsForAuto((p) =>
+              p.includes(id) ? p.filter((x) => x !== id) : [...p, id]
+            )
+          }
+          handleAutoBalanceSelectedPlayers={handleAutoBalanceSelectedPlayers}
+          draftLoading={draftLoading}
+          scoreModalMatch={scoreModalMatch}
+          setScoreModalMatch={setScoreModalMatch}
+          modalScoreA={modalScoreA}
+          setModalScoreA={setModalScoreA}
+          modalScoreB={modalScoreB}
+          setModalScoreB={setModalScoreB}
+          selectedMvpName={selectedMvpName}
+          setSelectedMvpName={setSelectedMvpName}
+          applyRatingBoost={applyRatingBoost}
+          setApplyRatingBoost={setApplyRatingBoost}
+          matchParticipantsForMvp={
+            scoreModalMatch
+              ? [
+                  ...(scoreModalMatch.team_a_players || []),
+                  ...(scoreModalMatch.team_b_players || []),
+                ]
+              : []
+          }
+          handleSaveScore={handleSaveScore}
+          tournamentPlayersModal={tournamentPlayersModal}
+          setTournamentPlayersModal={setTournamentPlayersModal}
+          selectedPlayerIdsForTourney={selectedPlayerIdsForTourney}
+          setSelectedPlayerIdsForTourney={setSelectedPlayerIdsForTourney}
+          tournamentTeamsCount={parsedTournamentTeamsCount}
+          toggleSelectPlayerForTourney={toggleSelectPlayerForTourney}
+          handleGenerateTournament={handleGenerateTournament}
+          tourneyLoading={tourneyLoading}
+          tourneyScoreModalFixture={tourneyScoreModalFixture}
+          setTourneyScoreModalFixture={setTourneyScoreModalFixture}
+          tourneyScoreA={tourneyScoreA}
+          setTourneyScoreA={setTourneyScoreA}
+          tourneyScoreB={tourneyScoreB}
+          setTourneyScoreB={setTourneyScoreB}
+          handleSaveTourneyFixtureScore={handleSaveTourneyFixtureScore}
+        />
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F4F6F8' },
-  scrollContent: { padding: 12, paddingBottom: 30 },
-  header: {
-    backgroundColor: '#1B4332',
-    padding: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  title: { fontSize: 17, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 2 },
-  subtitle: { fontSize: 11, color: '#D8F3DC', textAlign: 'center' },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 12,
-    elevation: 2,
-    marginBottom: 10,
-  },
-  label: { fontSize: 12, fontWeight: 'bold', color: '#1B4332', marginBottom: 6, textAlign: 'right' },
-  textInput: {
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#DEE2E6',
-    borderRadius: 10,
-    padding: 10,
-    height: 80,
-    textAlignVertical: 'top',
-    fontSize: 13,
-    color: '#212529',
-    marginBottom: 10,
-  },
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  primaryButton: {
-    flex: 3,
-    backgroundColor: '#2D6A4F',
-    paddingVertical: 11,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
-  clearButton: {
-    flex: 1,
-    backgroundColor: '#FFE3E3',
-    paddingVertical: 11,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clearButtonText: { color: '#C92A2A', fontSize: 14, fontWeight: 'bold' },
-  loadingRow: { flexDirection: 'row', alignItems: 'center' },
-  resultsContainer: { marginTop: 2 },
-  infoBanner: {
-    backgroundColor: '#D8F3DC',
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#95D5B2',
-  },
-  infoBannerLocal: { backgroundColor: '#FFF3BF', borderColor: '#FCC419' },
-  infoText: { color: '#1B4332', fontWeight: 'bold', textAlign: 'center', fontSize: 11, lineHeight: 16 },
-  infoTextLocal: { color: '#856404' },
-  tabRow: { flexDirection: 'row', marginBottom: 8, gap: 6 },
-  tabButton: {
-    flex: 1,
-    backgroundColor: '#E9ECEF',
-    paddingVertical: 9,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  activeTab: { backgroundColor: '#1B4332' },
-  tabText: { fontSize: 12, fontWeight: 'bold', color: '#495057' },
-  activeTabText: { color: '#FFFFFF' },
-
-  unifiedPitchWrapper: { marginBottom: 10 },
-  unifiedSoccerPitch: {
-    backgroundColor: '#1E5631',
-    borderRadius: 14,
-    borderWidth: 2.5,
-    borderColor: '#FFFFFF',
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  pitchCenterLine: {
-    position: 'absolute',
-    top: '50%',
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    zIndex: 1,
-  },
-  pitchCenterCircle: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    width: 60,
-    height: 60,
-    marginTop: -30,
-    marginLeft: -30,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-    zIndex: 1,
-  },
-  pitchCenterSpot: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    width: 5,
-    height: 5,
-    marginTop: -2.5,
-    marginLeft: -2.5,
-    borderRadius: 2.5,
-    backgroundColor: '#FFFFFF',
-    zIndex: 2,
-  },
-  topPenaltyArea: {
-    position: 'absolute',
-    top: 0,
-    left: '28%',
-    width: '44%',
-    height: 38,
-    borderBottomWidth: 2,
-    borderLeftWidth: 2,
-    borderRightWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-    zIndex: 1,
-  },
-  bottomPenaltyArea: {
-    position: 'absolute',
-    bottom: 0,
-    left: '28%',
-    width: '44%',
-    height: 38,
-    borderTopWidth: 2,
-    borderLeftWidth: 2,
-    borderRightWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-    zIndex: 1,
-  },
-  pitchHalf: {
-    flex: 1,
-    paddingVertical: 4,
-    justifyContent: 'space-around',
-    zIndex: 5,
-  },
-  teamHalfHeader: { alignItems: 'center', marginBottom: 2 },
-  teamHalfHeaderBottom: { alignItems: 'center', marginTop: 2 },
-  teamHalfTitle: { color: '#D8F3DC', fontSize: 11, fontWeight: 'bold' },
-  pitchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginVertical: 2,
-  },
-
-  fifaPlayerWrapper: {
-    alignItems: 'center',
-    marginHorizontal: 3,
-    width: 66,
-  },
-  fifaCardBody: {
-    width: 54,
-    height: 54,
-    borderTopLeftRadius: 9,
-    borderTopRightRadius: 9,
-    borderBottomLeftRadius: 13,
-    borderBottomRightRadius: 13,
-    borderWidth: 1.5,
-    paddingHorizontal: 4,
-    paddingTop: 3,
-    justifyContent: 'space-between',
-    elevation: 3,
-  },
-  selectedCardForSwap: {
-    borderWidth: 2.5,
-    borderColor: '#38BDF8',
-    backgroundColor: '#38BDF8',
-  },
-  fifaCardTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  fifaRatingCol: { alignItems: 'center' },
-  fifaRatingNum: { fontSize: 12, fontWeight: '900', lineHeight: 13 },
-  fifaPosCode: { fontSize: 8, fontWeight: 'bold' },
-  fifaKitIcon: { fontSize: 14 },
-  fifaCardInnerLine: { height: 1.5, backgroundColor: 'rgba(0,0,0,0.2)', marginBottom: 2 },
-  fifaNamePlate: {
-    backgroundColor: '#111827',
-    borderWidth: 1,
-    borderColor: '#EAB308',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 3,
-    marginTop: 2,
-    width: 64,
-    alignItems: 'center',
-  },
-  selectedNamePlate: { backgroundColor: '#0284C7', borderColor: '#FFFFFF' },
-  fifaPlayerName: { color: '#FFFFFF', fontSize: 9, fontWeight: 'bold', textAlign: 'center' },
-  pitchHintText: { fontSize: 10, color: '#495057', textAlign: 'center', marginTop: 4, fontWeight: '500' },
-
-  teamsColumnWrapper: { flexDirection: 'column', gap: 10, marginBottom: 10 },
-  teamCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 10,
-    elevation: 2,
-    borderTopWidth: 5,
-  },
-  teamACard: { borderTopColor: '#2D6A4F' },
-  teamBCard: { borderTopColor: '#1D3557' },
-  teamTitleA: { fontSize: 13, fontWeight: 'bold', color: '#2D6A4F', textAlign: 'right', marginBottom: 1 },
-  teamTitleB: { fontSize: 13, fontWeight: 'bold', color: '#1D3557', textAlign: 'right', marginBottom: 1 },
-  teamPower: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#D97706',
-    textAlign: 'right',
-    marginBottom: 6,
-    paddingBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F3F5',
-  },
-  playerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 5,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#F1F3F5',
-  },
-  playerInfo: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 6 },
-  playerName: { fontSize: 12, color: '#1F2937', textAlign: 'right', fontWeight: 'bold' },
-  playerPosition: { fontSize: 10, color: '#6B7280' },
-  ratingBadge: {
-    backgroundColor: '#E5E7EB',
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  ratingText: { fontSize: 11, fontWeight: 'bold', color: '#374151' },
-  
-  shareImageButton: {
-    backgroundColor: '#0EA5E9',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 6,
-    elevation: 2,
-  },
-  shareImageButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
-});

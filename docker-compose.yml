@@ -1,11 +1,28 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: qisma_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: qisma_user
+      POSTGRES_PASSWORD: qisma_password
+      POSTGRES_DB: qisma_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   backend:
     build: ./backend
+    container_name: qisma_backend
+    restart: always
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-    restart: always
+      - DATABASE_URL=postgres://qisma_user:qisma_password@postgres:5432/qisma_db
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:

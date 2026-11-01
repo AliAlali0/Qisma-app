@@ -101,6 +101,7 @@ export default function App() {
   const [playerRatingInput, setPlayerRatingInput] = useState('80');
   const [primaryPosInput, setPrimaryPosInput] = useState('وسط');
   const [secondaryPosInput, setSecondaryPosInput] = useState([]);
+  const [playerGroupInput, setPlayerGroupInput] = useState('عام');
 
   const [draftDefCount, setDraftDefCount] = useState(2);
   const [draftMidCount, setDraftMidCount] = useState(2);
@@ -979,6 +980,7 @@ export default function App() {
     setPlayerRatingInput('80');
     setPrimaryPosInput('وسط');
     setSecondaryPosInput([]);
+    setPlayerGroupInput('عام');
   };
 
   const handleSavePlayer = async () => {
@@ -993,6 +995,7 @@ export default function App() {
         rating: Number(playerRatingInput) || 75,
         primary_position: primaryPosInput,
         secondary_positions: secondaryPosInput,
+        group_name: playerGroupInput.trim() || 'عام',
       }),
     });
     if (res.ok) {
@@ -1254,6 +1257,8 @@ export default function App() {
             setPlayerNameInput={setPlayerNameInput}
             primaryPosInput={primaryPosInput}
             secondaryPosInput={secondaryPosInput}
+            playerGroupInput={playerGroupInput}
+            setPlayerGroupInput={setPlayerGroupInput}
             handleSelectPrimaryPosition={(pos) => {
               setPrimaryPosInput(pos);
               setSecondaryPosInput((p) => p.filter((x) => x !== pos));
@@ -1275,6 +1280,7 @@ export default function App() {
               setPlayerRatingInput(String(p.rating));
               setPrimaryPosInput(p.primary_position);
               setSecondaryPosInput(p.secondary_positions || []);
+              setPlayerGroupInput(p.group_name || 'عام');
             }}
           />
         ) : isLoggedUser && mainScreen === 'draft' ? (

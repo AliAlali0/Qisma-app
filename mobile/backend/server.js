@@ -76,6 +76,7 @@ app.get('/api/players', async (req, res) => {
     const userId = await getDefaultUserId();
     const result = await pool.query(
       `SELECT id, name, rating, primary_position, secondary_positions,
+              COALESCE(group_name, 'عام') AS group_name,
               COALESCE(matches_played, 0) AS matches_played,
               COALESCE(wins, 0) AS wins,
               COALESCE(mvp_count, 0) AS mvp_count
@@ -93,7 +94,7 @@ app.get('/api/players', async (req, res) => {
 
 app.post('/api/players', async (req, res) => {
   try {
-    const { name, rating, primary_position, secondary_positions } = req.body;
+    const { name, rating, primary_position, secondary_positions, group_name } = req.body;
     if (!name || !name.trim() || !primary_position) {
       return res.status(400).json({ error: 'اسم اللاعب والمركز الأساسي مطلوبان' });
     }
@@ -122,7 +123,7 @@ app.post('/api/players', async (req, res) => {
 app.put('/api/players/:id', async (req, res) => {
   try {
     const playerId = req.params.id;
-    const { name, rating, primary_position, secondary_positions } = req.body;
+    const { name, rating, primary_position, secondary_positions, group_name } = req.body;
 
     if (!name || !name.trim() || !primary_position) {
       return res.status(400).json({ error: 'اسم اللاعب والمركز الأساسي مطلوبان' });
@@ -136,10 +137,10 @@ app.put('/api/players/:id', async (req, res) => {
 
     const result = await pool.query(
       `UPDATE players
-       SET name = $1, rating = $2, primary_position = $3, secondary_positions = $4
-       WHERE id = $5
-       RETURNING id, name, rating, primary_position, secondary_positions`,
-      [cleanName, numRating, primary_position, secPositionsArray, playerId]
+       SET name = $1, rating = $2, primary_position = $3, secondary_positions = $4, group_name = COALESCE($5, group_name)
+       WHERE id = $6
+       RETURNING id, name, rating, primary_position, secondary_positions, group_name`,
+      [cleanName, numRating, primary_position, secPositionsArray, (group_name && group_name.trim()) ? group_name.trim() : null, playerId]
     );
 
     if (result.rows.length === 0) {

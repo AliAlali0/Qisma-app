@@ -19,9 +19,12 @@ export default function TeamsScreen({
   const [selectedPlayerIds, setSelectedPlayerIds] = useState([]);
   const [showPlayerPicker, setShowPlayerPicker] = useState(false);
   const [playerFilterPos, setPlayerFilterPos] = useState('الكل');
+  const [playerFilterGroup, setPlayerFilterGroup] = useState('الكل');
   const [playerSearchQuery, setPlayerSearchQuery] = useState('');
 
   const nextAutoCode = getAlphabetTeamCode(savedTeams.length);
+
+  const existingGroups = ['الكل', ...new Set((savedPlayers || []).map((p) => p.group_name || 'عام'))];
 
   const togglePlayerSelection = (playerId) => {
     setSelectedPlayerIds((prev) =>
@@ -104,12 +107,14 @@ export default function TeamsScreen({
 
   // فلترة قائمة اللاعبين للاختيار
   const filteredPlayers = (savedPlayers || []).filter((p) => {
+    const matchesGroup =
+      playerFilterGroup === 'الكل' || (p.group_name || 'عام') === playerFilterGroup;
     const matchesPos =
       playerFilterPos === 'الكل' || p.primary_position === playerFilterPos;
     const matchesSearch =
       !playerSearchQuery.trim() ||
       p.name.toLowerCase().includes(playerSearchQuery.trim().toLowerCase());
-    return matchesPos && matchesSearch;
+    return matchesGroup && matchesPos && matchesSearch;
   });
 
   return (
@@ -232,6 +237,44 @@ export default function TeamsScreen({
               onChangeText={setPlayerSearchQuery}
               textAlign="right"
             />
+
+            {/* فلترة بحسب المجموعة إن وُجد أكثر من مجموعة */}
+            {existingGroups.length > 2 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 8 }}
+                contentContainerStyle={{ gap: 6 }}
+              >
+                {existingGroups.map((grp) => {
+                  const isActive = playerFilterGroup === grp;
+                  return (
+                    <TouchableOpacity
+                      key={`team-grp-${grp}`}
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 6,
+                        backgroundColor: isActive ? '#0284C7' : '#F1F5F9',
+                        borderWidth: 1,
+                        borderColor: isActive ? '#0284C7' : '#CBD5E1',
+                      }}
+                      onPress={() => setPlayerFilterGroup(grp)}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 'bold',
+                          color: isActive ? '#FFFFFF' : '#475569',
+                        }}
+                      >
+                        {grp === 'الكل' ? '🌐 كل المجموعات' : `🏷️ ${grp}`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
 
             {/* أزرار فلترة المراكز + أزرار تحديد الكل */}
             <View

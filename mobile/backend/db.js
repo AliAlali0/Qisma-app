@@ -1,4 +1,4 @@
-const { Pool } = require('pg');
+﻿const { Pool } = require('pg');
 
 const connectionString =
   process.env.DATABASE_URL ||
@@ -56,6 +56,7 @@ async function initDatabase() {
     await pool.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS matches_played INTEGER DEFAULT 0;`);
     await pool.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER DEFAULT 0;`);
     await pool.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS mvp_count INTEGER DEFAULT 0;`);
+    await pool.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS group_name VARCHAR(100) DEFAULT 'عام';`);
 
     // 4. جدول المباريات والتقسيمات
     await pool.query(`

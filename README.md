@@ -7,7 +7,6 @@
   <img src="https://img.shields.io/badge/Database-PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/Local_LLM-Meta_Llama_3.1_(Ollama)-0467DF?style=for-the-badge&logo=meta&logoColor=white" />
   <img src="https://img.shields.io/badge/Cloud_AI-Google_Gemini_API-8E75B2?style=for-the-badge&logo=google&logoColor=white" />
-  <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" />
 </p>
 
 ---

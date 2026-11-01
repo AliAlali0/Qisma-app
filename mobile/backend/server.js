@@ -3,6 +3,9 @@ const express = require('express');
 const cors = require('cors');
 const { pool, initDatabase } = require('./db');
 const axios = require('axios');
+const { GoogleGenAI } = require('@google/genai');
+
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
 
 const app = express();
 app.use(cors());
@@ -106,11 +109,13 @@ app.post('/api/players', async (req, res) => {
       ? secondary_positions.filter((pos) => pos !== primary_position)
       : [];
 
+    const finalGroupName = (group_name && group_name.trim()) ? group_name.trim() : 'عام';
+
     const result = await pool.query(
-      `INSERT INTO players (user_id, name, rating, primary_position, secondary_positions)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, rating, primary_position, secondary_positions`,
-      [userId, cleanName, numRating, primary_position, secPositionsArray]
+      `INSERT INTO players (user_id, name, rating, primary_position, secondary_positions, group_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, rating, primary_position, secondary_positions, group_name`,
+      [userId, cleanName, numRating, primary_position, secPositionsArray, finalGroupName]
     );
 
     res.status(201).json(result.rows[0]);
@@ -135,12 +140,14 @@ app.put('/api/players/:id', async (req, res) => {
       ? secondary_positions.filter((pos) => pos !== primary_position)
       : [];
 
+    const finalGroupName = (group_name && group_name.trim()) ? group_name.trim() : 'عام';
+
     const result = await pool.query(
       `UPDATE players
-       SET name = $1, rating = $2, primary_position = $3, secondary_positions = $4, group_name = COALESCE($5, group_name)
+       SET name = $1, rating = $2, primary_position = $3, secondary_positions = $4, group_name = $5
        WHERE id = $6
        RETURNING id, name, rating, primary_position, secondary_positions, group_name`,
-      [cleanName, numRating, primary_position, secPositionsArray, (group_name && group_name.trim()) ? group_name.trim() : null, playerId]
+      [cleanName, numRating, primary_position, secPositionsArray, finalGroupName, playerId]
     );
 
     if (result.rows.length === 0) {
@@ -591,25 +598,9 @@ function guestLocalAnalyzer(text) {
   return result;
 }
 
-// 2. دالة الذكاء الاصطناعي الهجين (Llama AI للمسجلين)
-async function analyzeWithLlamaAI(text) {
-  let dbPlayersMap = new Map();
-  let dbPlayersSummary = '';
-  try {
-    const dbRes = await pool.query(
-      `SELECT name, rating, primary_position, secondary_positions FROM players`
-    );
-    for (const row of dbRes.rows) {
-      dbPlayersMap.set(row.name.trim(), row);
-    }
-    dbPlayersSummary = dbRes.rows
-      .map((r) => `${r.name} (ريت: ${r.rating}, مركز: ${r.primary_position})`)
-      .join(' | ');
-  } catch (err) {}
-
-  const explicitHints = extractExplicitHintsFromText(text);
-
-   const prompt = `
+// دالة بناء موجه الذكاء الاصطناعي (Prompt) المشترك بين Llama و Gemini
+function buildAIPrompt(text, dbPlayersSummary) {
+  return `
 أنت محلل بيانات رياضي دقيق وصارم جداً. مهمتك تحليل نص الواتساب التالي بدقة حرفية، وعدم اختلاق أو زيادة أو نقصان أي لاعب.
 
 قواعد صارمة جداً:
@@ -634,24 +625,10 @@ async function analyzeWithLlamaAI(text) {
 ${text}
 """
 `;
-  console.log('[Llama AI] Sending prompt to local Llama 3.1...');
+}
 
-  const response = await axios.post(
-    'http://127.0.0.1:11434/api/generate',
-    {
-      model: 'llama3.1:latest',
-      prompt: prompt,
-      stream: false,
-      format: 'json',
-      options: {
-        temperature: 0.0,
-      },
-    },
-    { timeout: 120000 }
-  );
-
-  const rawResult = JSON.parse(response.data.response);
-
+// دالة معالجة وتنظيف مخرجات الذكاء الاصطناعي وموازنة الفريقين
+function postProcessAIResult(rawResult, dbPlayersMap, explicitHints, analysisSource) {
   const sanitizePlayer = (p) => {
     const cleanName = cleanPlayerName(p.name);
     const dbMatch = dbPlayersMap.get(cleanName);
@@ -719,9 +696,67 @@ ${text}
     wasRounded = true;
   }
 
-  const result = balanceTeamsTactically(activeMainPlayers, wasRounded, 'ai');
+  const result = balanceTeamsTactically(activeMainPlayers, wasRounded, analysisSource);
   result.allExtractedForDB = allRealPlayers;
   return result;
+}
+
+// 2. دالة التحليل عبر Meta Llama 3.1 المحلي
+async function analyzeWithLlamaAI(text, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  const prompt = buildAIPrompt(text, dbPlayersSummary);
+  console.log('[Llama AI] Sending prompt to local Llama 3.1 (Ollama)...');
+
+  const response = await axios.post(
+    'http://127.0.0.1:11434/api/generate',
+    {
+      model: 'llama3.1:latest',
+      prompt: prompt,
+      stream: false,
+      format: 'json',
+      options: {
+        temperature: 0.0,
+      },
+    },
+    { timeout: 8000 }
+  );
+
+  const rawResult = JSON.parse(response.data.response);
+  return postProcessAIResult(rawResult, dbPlayersMap, explicitHints, 'llama');
+}
+
+// 3. دالة التحليل السحابي عبر Google Gemini API (Fallback تلقائي)
+async function analyzeWithGeminiAI(text, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  if (!ai) {
+    throw new Error('GEMINI_API_KEY غير مهيأ في ملف .env');
+  }
+
+  const prompt = buildAIPrompt(text, dbPlayersSummary);
+  console.log('[Gemini Cloud AI] Calling Google Gemini API as intelligent cloud fallback...');
+
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+  } catch (err) {
+    console.warn(`[Gemini 2.5 failed, trying 1.5]: ${err.message}`);
+    response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+  }
+
+  let textRes = (response && response.text) ? response.text : '';
+  textRes = textRes.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+  const rawResult = JSON.parse(textRes);
+  return postProcessAIResult(rawResult, dbPlayersMap, explicitHints, 'gemini');
 }
 
 app.post('/api/divide-teams', async (req, res) => {
@@ -738,8 +773,41 @@ app.post('/api/divide-teams', async (req, res) => {
       resultData = guestLocalAnalyzer(rawText);
       console.log(`[SUCCESS] Guest analyzed locally (${resultData.totalExtracted} players).`);
     } else {
-      resultData = await analyzeWithLlamaAI(rawText);
-      console.log(`[SUCCESS] Registered user analyzed via Llama AI (${resultData.totalExtracted} players).`);
+      // إعداد بيانات اللاعبين من قاعدة البيانات والملاحظات الصريحة
+      let dbPlayersMap = new Map();
+      let dbPlayersSummary = '';
+      try {
+        const dbRes = await pool.query(
+          `SELECT name, rating, primary_position, secondary_positions FROM players`
+        );
+        for (const row of dbRes.rows) {
+          dbPlayersMap.set(row.name.trim(), row);
+        }
+        dbPlayersSummary = dbRes.rows
+          .map((r) => `${r.name} (ريت: ${r.rating}, مركز: ${r.primary_position})`)
+          .join(' | ');
+      } catch (err) {}
+
+      const explicitHints = extractExplicitHintsFromText(rawText);
+
+      // 1. محاولة التحليل عبر Llama 3.1 المحلي أولاً
+      try {
+        resultData = await analyzeWithLlamaAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+        console.log(`[SUCCESS] Analyzed via Local Llama 3.1 AI (${resultData.totalExtracted} players).`);
+      } catch (llamaErr) {
+        console.warn(`[Llama AI Unavailable]: ${llamaErr.message}. Initiating auto-fallback to Google Gemini Cloud API...`);
+        // 2. في حال فشل أو عدم تشغيل Ollama، التحويل التلقائي لسحابة Google Gemini API
+        try {
+          resultData = await analyzeWithGeminiAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+          console.log(`[SUCCESS] Analyzed via Google Gemini Cloud AI Fallback (${resultData.totalExtracted} players).`);
+        } catch (geminiErr) {
+          console.warn(`[Gemini AI Error]: ${geminiErr.message}. Falling back to Smart Local Rule Engine...`);
+          // 3. في حال انقطاع الإنترنت أو عدم توفر المفتاح، العودة للمحلل المحلي الذكي لضمان استمرارية التطبيق 100%
+          resultData = guestLocalAnalyzer(rawText);
+          resultData.analysisSource = 'local';
+          console.log(`[SUCCESS] Analyzed via Smart Local Engine Fallback (${resultData.totalExtracted} players).`);
+        }
+      }
     }
 
     // حفظ أو تحديث اللاعبين تلقائياً في قاعدة البيانات عند تقسيم اللستة

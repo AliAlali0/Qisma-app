@@ -112,6 +112,7 @@ export default function App() {
   const [selectedDraftSlotId, setSelectedDraftSlotId] = useState(null);
   const [multiSelectModalVisible, setMultiSelectModalVisible] = useState(false);
   const [selectedPlayerIdsForAuto, setSelectedPlayerIdsForAuto] = useState([]);
+  const [selectedDraftGroup, setSelectedDraftGroup] = useState('الكل');
   const [draftLoading, setDraftLoading] = useState(false);
 
   const [matchesList, setMatchesList] = useState([]);
@@ -1297,13 +1298,17 @@ export default function App() {
             teamBColor={teamBColor}
             renderSubscriberTeamsCustomization={renderSubscriberTeamsCustomization}
             resetDraftPitch={resetDraftPitch}
-            selectTopPlayersForFormation={() =>
-              setSelectedPlayerIdsForAuto(
-                savedPlayers
-                  .slice(0, (1 + draftDefCount + draftMidCount + draftAttCount) * 2)
-                  .map((p) => p.id)
-              )
-            }
+            selectedDraftGroup={selectedDraftGroup}
+            setSelectedDraftGroup={setSelectedDraftGroup}
+            savedPlayers={savedPlayers}
+            selectTopPlayersForFormation={(targetGroup = selectedDraftGroup) => {
+              const pool =
+                targetGroup === 'الكل'
+                  ? savedPlayers
+                  : savedPlayers.filter((p) => (p.group_name || 'عام') === targetGroup);
+              const needed = (1 + draftDefCount + draftMidCount + draftAttCount) * 2;
+              setSelectedPlayerIdsForAuto(pool.slice(0, needed).map((p) => p.id));
+            }}
             setMultiSelectModalVisible={setMultiSelectModalVisible}
             selectedDraftSlotId={selectedDraftSlotId}
             setSelectedDraftSlotId={setSelectedDraftSlotId}

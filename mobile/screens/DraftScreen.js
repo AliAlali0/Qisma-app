@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import styles from '../styles';
 import { getKitEmojiByHex, getDraftLines } from '../utils/helpers';
 import { DraftSlotCard } from '../components/PlayerCard';
@@ -16,6 +16,9 @@ export default function DraftScreen({
   teamBColor,
   renderSubscriberTeamsCustomization,
   resetDraftPitch,
+  selectedDraftGroup = 'الكل',
+  setSelectedDraftGroup,
+  savedPlayers = [],
   selectTopPlayersForFormation,
   setMultiSelectModalVisible,
   selectedDraftSlotId,
@@ -32,6 +35,8 @@ export default function DraftScreen({
 }) {
   const draftLinesB = getDraftLines(draftSlotsB);
   const draftLinesA = getDraftLines(draftSlotsA);
+
+  const availableGroups = ['الكل', ...Array.from(new Set((savedPlayers || []).map((p) => p.group_name || 'عام')))];
 
   return (
     <View>
@@ -138,6 +143,36 @@ export default function DraftScreen({
 
         {renderSubscriberTeamsCustomization()}
 
+        {/* شريط فلترة المجموعة للتقسيم التكتيكي (Multi-Squad) */}
+        <View style={{ marginVertical: 10, backgroundColor: '#F8FAFC', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0' }}>
+          <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#1B4332', textAlign: 'right', marginBottom: 6 }}>
+            👥 فلترة لاعبي التقسيم التكتيكي بحسب المجموعة (Multi-Squad):
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {availableGroups.map((grp) => {
+              const isSelected = selectedDraftGroup === grp;
+              return (
+                <TouchableOpacity
+                  key={"draft-grp-" + grp}
+                  style={{
+                    backgroundColor: isSelected ? '#0F766E' : '#FFFFFF',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: isSelected ? '#0F766E' : '#CBD5E1',
+                  }}
+                  onPress={() => setSelectedDraftGroup && setSelectedDraftGroup(grp)}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: 'bold', color: isSelected ? '#FFFFFF' : '#334155' }}>
+                    {grp === 'الكل' ? '🌐 كل المجموعات' : '🏷️ ' + grp}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         <View style={styles.buttonRow}>
           <TouchableOpacity style={styles.clearButton} onPress={resetDraftPitch}>
             <Text style={styles.clearButtonText}>تفريغ الملعب</Text>
@@ -146,11 +181,13 @@ export default function DraftScreen({
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => {
-              selectTopPlayersForFormation();
+              selectTopPlayersForFormation && selectTopPlayersForFormation(selectedDraftGroup);
               setMultiSelectModalVisible(true);
             }}
           >
-            <Text style={styles.primaryButtonText}>🤖 اختر اللاعبين وقسّمهم تلقائياً</Text>
+            <Text style={styles.primaryButtonText}>
+              🤖 اختر وقسّم لاعبي ({selectedDraftGroup === 'الكل' ? 'الكل' : selectedDraftGroup})
+            </Text>
           </TouchableOpacity>
         </View>
       </View>

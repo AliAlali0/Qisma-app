@@ -1,144 +1,157 @@
-# ⚽ تطبيق قِسمة (Qismah App)
-### المنصة الذكية لإدارة تمارين وبطولات كرة القدم وتوزيع الفرق بالذكاء الاصطناعي
-> **Smart Pickup Football Organizer, Tactical Pitch & AI-Powered WhatsApp List Parser**
-
----
+# ⚽ Qismah (قِسمة)
+### AI-Powered Pickup Football Organizer, Tactical Pitch & Smart Team Balancer
 
 <p align="center">
   <img src="https://img.shields.io/badge/React_Native-Expo_SDK_58-000000?style=for-the-badge&logo=expo&logoColor=white" />
   <img src="https://img.shields.io/badge/Backend-Node.js_&_Express-339933?style=for-the-badge&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/Database-PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
-  <img src="https://img.shields.io/badge/AI_Engine-Google_Gemini_API-8E75B2?style=for-the-badge&logo=google&logoColor=white" />
+  <img src="https://img.shields.io/badge/Local_LLM-Meta_Llama_3.1_(Ollama)-0467DF?style=for-the-badge&logo=meta&logoColor=white" />
+  <img src="https://img.shields.io/badge/Cloud_AI-Google_Gemini_API-8E75B2?style=for-the-badge&logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" />
 </p>
 
 ---
 
-## 📌 عن المشروع (Overview)
+## 📌 Project Overview
 
-يعالج تطبيق **قِسمة** الفوضى الأسبوعية التي يواجهها مئات الآلاف من منظّمي مباريات كرة القدم الودية (تمارين الحواري والملاعب المستأجرة). بدلاً من التقسيم اليدوي المرهق والخلافات المستمرة حول توازن الفرق وقوائم الواتساب العشوائية، يوفّر **قِسمة** حلاً متكاملاً يبدأ من قراءة رسائل الواتساب بالذكاء الاصطناعي، مروراً برسم التشكيلات التكتيكية على ملعب تفاعلي، وصولاً إلى بطاقات فيفا (FUT Cards) وإدارة البطولات وسجلات اللاعبين.
+**Qismah (قِسمة)** is an end-to-end full-stack mobile platform engineered to eliminate the weekly chaos of organizing casual and amateur football matches (pickup games, rented pitches, and neighborhood leagues).
 
----
-
-## 🌟 أبرز مميزات التطبيق (Key Features)
-
-### 1. 🤖 التقسيم الذكي بمودل الذكاء الاصطناعي (AI WhatsApp Parser)
-* الصق قائمة أسماء اللاعبين المنسوخة من قروب الواتساب بأي شكل وصيغة عفوية.
-* يقوم نموذج **Google Gemini API** بتحليل النص، تنظيف الرموز والأرقام، واستخراج اسم كل لاعب ومركزه الأساسي والاحتياطي تلقائياً.
-* خوارزمية موازنة تكتيكية تضمن تكافؤ القوى بين الفريقين وحساب جبر الأعداد الفردية تلقائياً.
-
-### 2. 🏟️ الملعب التفاعلي والتشكيلات التكتيكية (Tactical Pitch)
-* محاكاة بصرية لملعب كرة قدم كامل يعرض الفريقين وجهاً لوجه مع خطط اللعب (Formations).
-* إمكانية تغيير مراكز اللاعبين أو تبديل الأماكن بالنقر المباشر أو الضغط المطوّل.
-* مشاركة تشكيلة الملعب فوراً كصورة عالية الدقة (High-Res Image) أو رسالة نصية منسقة للواتساب.
-
-### 3. 🎴 مولّد بطاقات فيفا للاعبين (EA FC / FUT Player Card Generator)
-* تحويل بروفايل وإحصائيات أي لاعب إلى بطاقة **Ultimate Team** احترافية (ذهبية نادرة، كلاسيكية، أو بطاقة نجم الأسبوع **MVP In-Form**).
-* تتضمن البطاقة تقييم اللاعب العام، مركزه، خصائص فيفا الستة (PAC, SHO, PAS, DRI, DEF, PHY)، ووسم مجموعته.
-* إمكانية حفظ ومشاركة بطاقة اللاعب كصورة لنشرها في ستوري إنستقرام أو قروبات الواتساب.
-
-### 4. 👥 دعم المجموعات والتمارين المتعددة (Multi-Squad Circles)
-* إدارة تمارين متعددة بدون خلط اللاعبين (مثلاً: `🏢 قروب الدوام`، `⚽ تمرين الحارة`، `🏆 دوري الاستراحة`).
-* فلترة سريعة للتشكيلات واختيار اللاعبين بحسب المجموعة.
-
-### 5. 🏆 محرك البطولات والدوريات (Tournaments Engine)
-* إنشاء بطولات سريعة بنظام المجموعات/الدوري بالنقاط أو بنظام خروج المغلوب.
-* جدولة المباريات وحساب جدول الترتيب والنقاط وفارق الأهداف تلقائياً.
-
-### 6. 🛡️ سجل الأفرقة وتخصيص الأطقم (Custom Teams & Kits)
-* حفظ الأفرقة بهويتها وألوان أطقمها المفضلة (Kit Colors & Badges).
-* تعيين أي فريق مباشرة في الملعب كـ **الفريق الأول (A)** أو **الفريق الثاني (B)** بنقرة واحدة.
-
-### 7. 👑 نظام الحسابات والصلاحيات (Role-Based Access)
-* **وضع الضيف (Guest Mode):** استخدام سريع ومباشر للتقسيم بدون تسجيل دخول.
-* **وضع المسجل والبرو (Admin / Registered):** حفظ دائم في قاعدة البيانات، إدارة سجل اللاعبين، رصد النتائج، واختيار نجم المباراة MVP مع ترقية التقييمات.
+Instead of dealing with unstructured WhatsApp message lists, unbalanced squads, and manual calculations, **Qismah** leverages a **Hybrid AI engine (Meta Llama 3.1 & Google Gemini)** to parse raw WhatsApp rosters, balance teams tactically, render an interactive pitch with formation setups, manage tournaments, and even generate FIFA-style **EA FC Ultimate Team (FUT) player cards**.
 
 ---
 
-## 🛠️ البنية التقنية (Tech Stack)
+## 🌟 Key Features
 
-| الطبقة (Layer) | التقنيات المستخدمة |
-|---|---|
-| **تطبيق الجوال (Frontend)** | React Native, Expo SDK 58, Expo Sharing, View Shot |
-| **الواجهات والتصميم (UI/UX)** | Custom Modern Dark/Emerald Sports Theme (Mobile First) |
-| **الخادم الخلفي (Backend)** | Node.js, Express.js RESTful API |
-| **قاعدة البيانات (Database)** | PostgreSQL (Containerized via Docker) |
-| **محرك الذكاء الاصطناعي (AI)** | Google Gemini API (`@google/genai`) |
+### 1. 🤖 Dual/Hybrid AI WhatsApp Parser (Meta Llama 3.1 & Gemini)
+* **Raw Message Ingestion:** Paste chaotic, unformatted WhatsApp group lists containing numbers, emojis, nicknames, and informal notes.
+* **LLM Extraction Engine:** Powered by local **Meta Llama 3.1** (via Ollama) and **Google Gemini API**, the system automatically cleans text, extracts confirmed players, detects primary & secondary positions, and separates waiting/bench lists.
+* **Smart Tactical Balancing:** Intelligent auto-rounding logic for odd player counts (9v9, 7v7, 5v5) that balances team ratings based on historical database stats and player positions.
+
+### 2. 🏟️ Interactive Tactical Pitch & Dynamic Formations
+* **Visual Soccer Pitch:** Real-time visual pitch rendering showing Team A and Team B in head-to-head tactical formations (e.g., 2-2-1, 4-3-3, or custom lines).
+* **Tap-to-Swap Repositioning:** Move players across tactical positions on the pitch seamlessly with single-tap or long-press interactions.
+* **Squad Circle Filtering:** Filter draft attendees by specific squad circles to automatically balance only the players belonging to that group.
+* **Instant WhatsApp Sharing:** Export the full pitch formation as a high-resolution image (`react-native-view-shot` + `expo-sharing`) or formatted WhatsApp text message with a single click.
+
+### 3. 🎴 EA FC / FIFA Ultimate Team (FUT) Player Cards
+* **Custom FUT Card Generator:** Turn any registered player into an authentic Ultimate Team card featuring dynamic card tiers:
+  * 🌟 **MVP In-Form:** Special obsidian/gold edition for match MVP award winners.
+  * ⭐ **Gold Rare (85+):** Metallic gold shine styling.
+  * ⭐ **Gold Common (75-84):** Classic warm gold.
+  * 🥈 **Silver (<75):** Sleek silver metallic theme.
+* **Authentic 6 FUT Attributes:** Automatically calculates realistic ratings for PAC, SHO, PAS, DRI, DEF, PHY (or GK attributes: DIV, HAN, KIC, REF, SPE, POS).
+* **Pickup Performance Badges:** Displays real-world pickup statistics: Matches played, Total wins, Win rate %, and MVP awards.
+* **Export & Social Share:** Export high-res card images ready for Instagram Stories, Snapchat, and WhatsApp groups.
+
+### 4. 👥 Multi-Squad Circles & Dynamic Group Manager
+* **Dynamic Group Creation Modal:** Create and manage custom squads and playing circles on the fly with custom tags and sports emoji presets (e.g., `🏢 Office Squad`, `⚽ Friday Pickup`, `🏆 Weekend League`, `🔥 Street FC`).
+* **Group-Filtered Tactical Division:** Filter players by specific groups directly in the tactical draft screen (`DraftScreen`). The smart split engine auto-selects only attendees from the active circle to balance Team A and Team B.
+* **Circle Filtering Across Modals:** Filter players by squad circle in player management, individual pitch slot pickers, team building, and tournament scheduling with 1-tap bulk selection.
+* **Persistent Squad Tagging:** Every player's squad tag is persistently stored in PostgreSQL and displayed on their profile, FUT card, and squad rosters.
+
+### 5. 🏆 Tournament & League Engine
+* **Tournament Modes:** Supports Round-Robin (League table with points) and Single Elimination (Knockout brackets).
+* **Automated Standings:** Automatically tracks played matches, wins, draws, losses, goals for (GF), goals against (GA), goal difference (GD), and points.
+* **Match Hub:** Record live scores, log match results, and designate the Man of the Match (MVP) with rating boosts.
+
+### 6. 🛡️ Custom Teams & Kit Customization
+* **Custom Kits & Codes:** Choose custom team names, colors, and kit emojis with automatic alphabetical naming codes (`Team A`, `Team B` ... `Team Z`, `Team AA`).
+* **Pitch Assignment:** Assign any saved squad directly to either **Team A (Bottom Half)** or **Team B (Top Half)** with dynamic slot allocation.
+
+### 7. 👑 Role-Based Access
+* **Guest Mode:** Immediate, frictionless access to fast text parsing and basic squad division without login.
+* **Registered / Pro Admin Mode:** Persistent PostgreSQL cloud storage, custom formation builders, player stats tracking, and match history archiving.
 
 ---
 
-## 🚀 تشغيل المشروع محلياً (Getting Started)
+## 🛠️ Tech Stack & Architecture
 
-### المتطلبات المسبقة:
-* [Node.js](https://nodejs.org/) (v18 أو أحدث)
-* [Docker Desktop](https://www.docker.com/) (لتشغيل قاعدة بيانات PostgreSQL)
-* [Expo Go](https://expo.dev/go) على هاتفك الجوال، أو محاكي Android / iOS.
+| Component | Technology | Description |
+|---|---|---|
+| **Mobile App** | **React Native / Expo SDK 58** | Cross-platform mobile front-end (iOS, Android, Web) |
+| **Backend API** | **Node.js & Express.js** | RESTful microservice handling business logic and ORM |
+| **Database** | **PostgreSQL** | Relational database containerized with Docker |
+| **Local LLM Engine** | **Meta Llama 3.1 (Ollama)** | Zero-latency local LLM parsing for registered users |
+| **Cloud AI Engine** | **Google Gemini API (`@google/genai`)** | High-precision cloud NLP extraction and semantic analysis |
+| **Media & Sharing** | **`react-native-view-shot` & `expo-sharing`** | High-definition canvas screenshot capturing & native sharing |
 
-### 1. استنساخ المشروع (Clone Repository):
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+* [Node.js](https://nodejs.org/) (v18 or higher)
+* [Docker Desktop](https://www.docker.com/) (for PostgreSQL)
+* [Ollama](https://ollama.ai/) (optional for local Llama 3.1: `ollama run llama3.1`)
+* [Expo Go](https://expo.dev/go) app installed on your physical mobile device
+
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/AliAlali0/Qisma-app.git
 cd Qisma-app
 ```
 
-### 2. تشغيل قاعدة البيانات (Database):
+### 2. Start PostgreSQL via Docker
 ```bash
 docker-compose up -d
 ```
 
-### 3. إعداد وتشغيل الخادم الخلفي (Backend Server):
+### 3. Setup and Run the Backend Server
 ```bash
 cd mobile/backend
 npm install
 npm run dev
-# السيرفر سيعمل على المنفذ http://localhost:5000
+# Server will run on http://localhost:5000
 ```
 
-### 4. تشغيل تطبيق الجوال (Expo Mobile App):
+> **Note for Local AI:** Ensure Ollama is running with `ollama run llama3.1` if you want local Meta Llama 3.1 parsing enabled.
+
+### 4. Start the Expo Mobile App
 ```bash
 cd ../
 npm install
 npx expo start
 ```
-امسح رمز الـ QR عبر تطبيق **Expo Go** على هاتفك لتجربة التطبيق مباشرة!
+Scan the displayed QR code with the **Expo Go** app on your phone to launch the app!
 
 ---
 
-## 📂 هيكل المجلدات (Project Architecture)
+## 📂 Project Directory Structure
 
 ```
 QismaApp/
-├── docker-compose.yml          # تكوين قاعدة بيانات PostgreSQL
-├── PLAN.md                     # خارطة طريق التطوير
+├── docker-compose.yml          # PostgreSQL container configuration
+├── PLAN.md                     # Roadmap and milestone documentation
 ├── mobile/
-│   ├── App.js                  # المتحكم الرئيسي وإدارة التنقل والحالة
-│   ├── styles.js               # السمات والتنسيقات البصرية
+│   ├── App.js                  # Main controller, state management & navigation stack
+│   ├── styles.js               # Global stylesheet and theme tokens
 │   ├── components/
-│   │   ├── FutCardModal.js     # بطاقة فيفا التفاعلية ومشاركتها
-│   │   ├── HeaderBar.js        # شريط العنوان والرجوع السريع والصلاحيات
-│   │   ├── PlayerCard.js       # بطاقات اللاعبين في الملعب
-│   │   └── AppModals.js        # نوافذ تسجيل النتائج والدخول
+│   │   ├── FutCardModal.js     # EA FC / FUT player card modal & image exporter
+│   │   ├── HeaderBar.js        # Global header with back navigation and auth switcher
+│   │   ├── PlayerCard.js       # Visual pitch player slot cards
+│   │   └── AppModals.js        # Score recording and auth modals
 │   ├── screens/
-│   │   ├── HomeScreen.js       # القائمة الرئيسية (شبكة مربعات تفاعلية)
-│   │   ├── DivideScreen.js     # تقسيم اللستة النصية والملعب التفاعلي
-│   │   ├── DraftScreen.js      # التقسيم التكتيكي وبناء الخطط
-│   │   ├── PlayersScreen.js    # سجل اللاعبين وفلترة المجموعات وبطاقات FUT
-│   │   ├── TeamsScreen.js      # إدارة الأفرقة وتعيين التشكيلات في الملعب
-│   │   ├── MatchesScreen.js    # أرشيف المباريات وجوائز MVP
-│   │   └── Tournaments...      # إدارة وجداول ومباريات البطولات
+│   │   ├── HomeScreen.js       # 2-column grid dashboard
+│   │   ├── DivideScreen.js     # Raw WhatsApp text parsing and visual pitch
+│   │   ├── DraftScreen.js      # Tactical formation builder and draft manager
+│   │   ├── PlayersScreen.js    # Player database, FUT cards & squad circle filters
+│   │   ├── TeamsScreen.js      # Custom team kit creator & pitch assigner
+│   │   ├── MatchesScreen.js    # Match history archive & MVP booster
+│   │   └── Tournaments...      # League standings and knockout management
 │   └── backend/
-│       ├── server.js           # خادم Express API ومسارات Gemini AI
-│       └── db.js               # تهيئة جداول PostgreSQL
+│       ├── server.js           # Express API, Llama 3.1 & Gemini endpoints
+│       └── db.js               # PostgreSQL pool setup and schema migrations
 ```
 
 ---
 
-## 👨‍💻 المطوّر (Author)
+## 👨‍💻 Author
 
-تم بناء وتطوير المشروع بشغف لخدمة مجتمع رياضة كرة القدم الهاوية.  
-* **GitHub:** [@AliAlali0](https://github.com/AliAlali0)
+**Ali Alali**  
+* **GitHub:** [@AliAlali0](https://github.com/AliAlali0)  
 * **LinkedIn:** [Ali Alali](https://linkedin.com)
 
 ---
 
-## 📄 الترخيص (License)
-هذا المشروع مرخّص تحت رخصة [MIT License](LICENSE).
+## 📄 License
+This project is open-source and available under the [MIT License](LICENSE).

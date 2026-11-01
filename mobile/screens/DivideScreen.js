@@ -130,8 +130,10 @@ export default function DivideScreen({
             style={[styles.infoBanner, analysisSource === 'local' && styles.infoBannerLocal]}
           >
             <Text style={[styles.infoText, analysisSource === 'local' && styles.infoTextLocal]}>
-              {analysisSource === 'ai'
-                ? `🤖 تم التحليل والموازنة بالذكاء الاصطناعي (${totalExtracted} لاعب)`
+              {analysisSource === 'gemini'
+                ? `✨ تم التحليل والموازنة بسحابة Google Gemini (${totalExtracted} لاعب)`
+                : (analysisSource === 'llama' || analysisSource === 'ai')
+                ? `🦙 تم التحليل والموازنة بنموذج Meta Llama 3.1 (${totalExtracted} لاعب)`
                 : `⚡ تم التحليل عبر المحلل المحلي (${totalExtracted} لاعب)`}
               {selectedPlayerId ? '\n🔄 اضغط على أي لاعب آخر (أو حارس) لتبديل مكانيهما' : ''}
             </Text>

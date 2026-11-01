@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   ScrollView,
+  Modal,
+  Alert,
 } from 'react-native';
 import styles from '../styles';
 import { POSITIONS_LIST } from '../constants/config';
@@ -35,13 +37,40 @@ export default function PlayersScreen({
   const [selectedGroupFilter, setSelectedGroupFilter] = useState('الكل');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // استخراج قائمة المجموعات الفريدة من اللاعبين المسجلين
-  const existingGroups = Array.from(
-    new Set((savedPlayers || []).map((p) => p.group_name || 'عام'))
-  );
-  const groupFiltersList = ['الكل', ...existingGroups];
+  // نافذة إضافة مجموعة جديدة
+  const [addGroupModalVisible, setAddGroupModalVisible] = useState(false);
+  const [newGroupInputText, setNewGroupInputText] = useState('');
+  const [customGroups, setCustomGroups] = useState([]);
 
-  const commonGroupSuggestions = ['عام', '⚽ تمرين الحارة', '🏢 قروب الدوام', '🏆 دوري الاستراحة'];
+  // قائمة بجميع المجموعات الفريدة (الافتراضية + المضافة يدوياً + من قاعدة البيانات)
+  const allExistingGroups = Array.from(
+    new Set([
+      'عام',
+      '⚽ تمرين الحارة',
+      '🏢 قروب الدوام',
+      '🏆 دوري الاستراحة',
+      ...customGroups,
+      ...(savedPlayers || []).map((p) => p.group_name || 'عام'),
+    ])
+  );
+
+  const groupFiltersList = ['الكل', ...allExistingGroups];
+
+  // اعتماد إضافة مجموعة جديدة
+  const handleAddNewGroup = () => {
+    const trimmed = newGroupInputText.trim();
+    if (!trimmed) {
+      Alert.alert('تنبيه', 'يرجى كتابة اسم للمجموعة أولاً');
+      return;
+    }
+    if (!customGroups.includes(trimmed)) {
+      setCustomGroups((prev) => [...prev, trimmed]);
+    }
+    setPlayerGroupInput(trimmed);
+    setSelectedGroupFilter(trimmed);
+    setNewGroupInputText('');
+    setAddGroupModalVisible(false);
+  };
 
   // تصفية اللاعبين بحسب المجموعة والبحث
   const filteredPlayers = (savedPlayers || []).filter((p) => {
@@ -62,6 +91,75 @@ export default function PlayersScreen({
         player={futModalPlayer}
         onClose={() => setFutModalPlayer(null)}
       />
+
+      {/* مودال إنشاء مجموعة / تمرين جديد */}
+      <Modal
+        visible={addGroupModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAddGroupModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: 320 }]}>
+            <View style={styles.modalHeaderRow}>
+              <TouchableOpacity onPress={() => setAddGroupModalVisible(false)}>
+                <Text style={styles.modalCloseText}>✖ إغلاق</Text>
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>🏷️ إضافة مجموعة جديدة</Text>
+            </View>
+
+            <Text style={{ fontSize: 11, color: '#4B5563', textAlign: 'right', marginBottom: 8 }}>
+              أنشئ اسماً لمجموعتك أو تمرينك لتصنيف اللاعبين وفلترتهم بكل سهولة:
+            </Text>
+
+            <TextInput
+              style={[styles.customTeamInput, { marginBottom: 8, backgroundColor: '#F8FAFC' }]}
+              placeholder="مثال: تمرين الأربعاء أو شباب الحارة..."
+              placeholderTextColor="#999"
+              value={newGroupInputText}
+              onChangeText={setNewGroupInputText}
+              textAlign="right"
+              autoFocus
+            />
+
+            {/* إيموجيات سريعة للاختيار المباشر */}
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginBottom: 12 }}>
+              {['⚽', '🏢', '🏆', '🌟', '🛡️', '🔥'].map((em) => (
+                <TouchableOpacity
+                  key={`em-${em}`}
+                  style={{
+                    backgroundColor: '#F1F5F9',
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 6,
+                    borderWidth: 1,
+                    borderColor: '#CBD5E1',
+                  }}
+                  onPress={() => setNewGroupInputText((prev) => `${em} ${prev.replace(/^[^\s]+\s*/, '')}`)}
+                >
+                  <Text style={{ fontSize: 14 }}>{em}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={() => {
+                  setNewGroupInputText('');
+                  setAddGroupModalVisible(false);
+                }}
+              >
+                <Text style={styles.clearButtonText}>إلغاء</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.primaryButton} onPress={handleAddNewGroup}>
+                <Text style={styles.primaryButtonText}>➕ إضافة واعتماد المجموعة</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* نموذج إضافة أو تعديل لاعب */}
       <View style={styles.card}>
@@ -95,47 +193,71 @@ export default function PlayersScreen({
           </View>
         </View>
 
-        {/* تحديد المجموعة / التمرين (Feature 6) */}
+        {/* تحديد واختيار المجموعة / التمرين مع زر إضافة مجموعة */}
         <View style={{ marginTop: 6, marginBottom: 8 }}>
-          <Text style={styles.customTeamLabel}>
-            🏷️ المجموعة / التمرين (لتصنيف اللاعبين):
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#0F766E',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 8,
+              }}
+              onPress={() => setAddGroupModalVisible(true)}
+            >
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#FFFFFF' }}>
+                ➕ مجموعة جديدة
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.customTeamLabel}>
+              🏷️ المجموعة / التمرين (لتصنيف اللاعبين):
+            </Text>
+          </View>
+
           <TextInput
             style={[styles.customTeamInput, { marginBottom: 6 }]}
-            placeholder="مثال: تمرين الحارة أو قروب الدوام (أو اتركه عام)"
+            placeholder="اكتب اسم المجموعة أو اختر من القائمة أدناه..."
             placeholderTextColor="#999"
             value={playerGroupInput}
             onChangeText={setPlayerGroupInput}
             textAlign="right"
           />
 
-          {/* وسوم اقتراحات سريعة للمجموعات */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
-            {commonGroupSuggestions.map((sug) => (
-              <TouchableOpacity
-                key={`sug-${sug}`}
-                style={{
-                  backgroundColor: playerGroupInput === sug ? '#0F766E' : '#F1F5F9',
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: playerGroupInput === sug ? '#0F766E' : '#CBD5E1',
-                }}
-                onPress={() => setPlayerGroupInput(sug)}
-              >
-                <Text
+          {/* وسوم المجموعات المتاحة للاختيار السريع */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 6, paddingVertical: 2 }}
+          >
+            {allExistingGroups.map((grp) => {
+              const isSelected = (playerGroupInput || 'عام').trim() === grp;
+              return (
+                <TouchableOpacity
+                  key={`form-grp-${grp}`}
                   style={{
-                    fontSize: 10,
-                    fontWeight: 'bold',
-                    color: playerGroupInput === sug ? '#FFFFFF' : '#475569',
+                    backgroundColor: isSelected ? '#0F766E' : '#F1F5F9',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    borderWidth: 1.5,
+                    borderColor: isSelected ? '#0F766E' : '#CBD5E1',
                   }}
+                  onPress={() => setPlayerGroupInput(grp)}
                 >
-                  {sug}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 'bold',
+                      color: isSelected ? '#FFFFFF' : '#475569',
+                    }}
+                  >
+                    {isSelected ? '✓ ' : ''}{grp}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
         <Text style={styles.customTeamLabel}>🎯 المركز الأساسي (اختر واحداً):</Text>
@@ -215,14 +337,36 @@ export default function PlayersScreen({
           </Text>
         </View>
 
-        {/* شريط فلترة المجموعات المتعددة (Feature 6) */}
+        {/* شريط فلترة المجموعات مع زر إضافة مجموعة جديدة */}
         <View style={{ marginVertical: 8 }}>
-          <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#475569', textAlign: 'right', marginBottom: 4 }}>
-            🎯 اختر المجموعة لعرض لاعبيها:
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#0F766E',
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 6,
+              }}
+              onPress={() => setAddGroupModalVisible(true)}
+            >
+              <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#FFFFFF' }}>
+                ➕ مجموعة جديدة
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#475569', textAlign: 'right' }}>
+              🎯 اختر المجموعة لعرض لاعبيها:
+            </Text>
+          </View>
+
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
             {groupFiltersList.map((grp) => {
               const isActive = selectedGroupFilter === grp;
+              const count =
+                grp === 'الكل'
+                  ? savedPlayers.length
+                  : savedPlayers.filter((p) => (p.group_name || 'عام') === grp).length;
+
               return (
                 <TouchableOpacity
                   key={`grp-filter-${grp}`}
@@ -233,6 +377,9 @@ export default function PlayersScreen({
                     borderRadius: 16,
                     borderWidth: 1,
                     borderColor: isActive ? '#0284C7' : '#CBD5E1',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
                   }}
                   onPress={() => setSelectedGroupFilter(grp)}
                 >
@@ -245,6 +392,26 @@ export default function PlayersScreen({
                   >
                     {grp === 'الكل' ? '🌐 كل المجموعات' : `🏷️ ${grp}`}
                   </Text>
+                  {count > 0 && (
+                    <View
+                      style={{
+                        backgroundColor: isActive ? '#FFFFFF' : '#CBD5E1',
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 'bold',
+                          color: isActive ? '#0284C7' : '#334155',
+                        }}
+                      >
+                        {count}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -282,7 +449,7 @@ export default function PlayersScreen({
                   <Text style={{ fontSize: 13 }}>✏️</Text>
                 </TouchableOpacity>
 
-                {/* زر بطاقة فيفا FUT التفاعلية (Feature 5) */}
+                {/* زر بطاقة فيفا FUT التفاعلية */}
                 <TouchableOpacity
                   style={{
                     backgroundColor: '#FEF08A',
@@ -318,21 +485,28 @@ export default function PlayersScreen({
                 </View>
 
                 {/* وسم المجموعة والمراكز الاحتياطية */}
-                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  {p.group_name && p.group_name !== 'عام' && (
-                    <View
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <View
+                    style={{
+                      backgroundColor: p.group_name && p.group_name !== 'عام' ? '#E0F2FE' : '#F1F5F9',
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: p.group_name && p.group_name !== 'عام' ? '#7DD3FC' : '#E2E8F0',
+                    }}
+                  >
+                    <Text
                       style={{
-                        backgroundColor: '#E0F2FE',
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                        borderRadius: 4,
+                        fontSize: 10,
+                        fontWeight: 'bold',
+                        color: p.group_name && p.group_name !== 'عام' ? '#0369A1' : '#64748B',
                       }}
                     >
-                      <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#0369A1' }}>
-                        🏷️ {p.group_name}
-                      </Text>
-                    </View>
-                  )}
+                      🏷️ {p.group_name || 'عام'}
+                    </Text>
+                  </View>
+
                   {Array.isArray(p.secondary_positions) && p.secondary_positions.length > 0 && (
                     <Text style={styles.secondaryPositionsSubtext}>
                       🔄 احتياطي: {p.secondary_positions.join(' ، ')}

@@ -148,6 +148,6 @@ QismaApp/
 
 **Ali Alali**  
 * **GitHub:** [@AliAlali0](https://github.com/AliAlali0)  
-* **LinkedIn:** [Ali Alali](https://linkedin.com)
+* **LinkedIn:** [Ali Alali](https://www.linkedin.com/in/aliadnanalali/)
 
 

@@ -6,7 +6,7 @@
  * as well as custom formation pitch drafting (/api/draft-balance).
  */
 
-const { pool } = require('../../db');
+const { PlayerModel } = require('../models');
 const { cleanPlayerName, extractExplicitHintsFromText } = require('../utils/helpers');
 const { balanceTeamsTactically } = require('../services/balancing.service');
 const { autoSavePlayersToDB } = require('../services/players.service');
@@ -29,13 +29,11 @@ async function divideTeams(req, res) {
     let dbPlayersMap = new Map();
     let dbPlayersSummary = '';
     try {
-      const dbRes = await pool.query(
-        `SELECT name, rating, primary_position, secondary_positions FROM players`
-      );
-      for (const row of dbRes.rows) {
+      const dbPlayers = await PlayerModel.findAllBasic();
+      for (const row of dbPlayers) {
         dbPlayersMap.set(row.name.trim(), row);
       }
-      dbPlayersSummary = dbRes.rows
+      dbPlayersSummary = dbPlayers
         .map((r) => `${r.name} (ريت: ${r.rating}, مركز: ${r.primary_position})`)
         .join(' | ');
     } catch (err) {}

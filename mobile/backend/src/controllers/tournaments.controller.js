@@ -3,12 +3,15 @@
  * Tournaments Controller (League, Knockouts, & Multi-Team Engine)
  * ============================================================================
  * Handles creating round-robin or knockout tournaments, generating schedules,
- * and saving participating teams into the database.
+ * and saving participating teams into the database using TournamentModel and TeamModel.
  */
 
-const { pool } = require('../../db');
+const { TournamentModel, TeamModel } = require('../models');
 const { getDefaultUserId } = require('../utils/helpers');
-const { divideIntoMultipleTournamentTeams, buildTournamentFixtures } = require('../services/balancing.service');
+const {
+  divideIntoMultipleTournamentTeams,
+  buildTournamentFixtures,
+} = require('../services/balancing.service');
 
 /**
  * GET /api/tournaments
@@ -17,11 +20,8 @@ const { divideIntoMultipleTournamentTeams, buildTournamentFixtures } = require('
 async function getTournaments(req, res) {
   try {
     const userId = await getDefaultUserId();
-    const result = await pool.query(
-      `SELECT * FROM tournaments WHERE user_id = $1 ORDER BY created_at DESC`,
-      [userId]
-    );
-    res.json(result.rows);
+    const tournaments = await TournamentModel.findAll(userId);
+    res.json(tournaments);
   } catch (err) {
     console.error('[DB ERROR - GET /api/tournaments]:', err.message);
     res.status(500).json({ error: 'فشل جلب البطولات' });
@@ -56,44 +56,35 @@ async function generateTournament(req, res) {
     const fixturesData = buildTournamentFixtures(teamsData, type);
 
     // Save tournament record
-    const result = await pool.query(
-      `INSERT INTO tournaments (user_id, name, tournament_type, teams_count, teams_data, fixtures_data)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        userId,
-        tourneyTitle,
-        type,
-        count,
-        JSON.stringify(teamsData),
-        JSON.stringify(fixturesData),
-      ]
-    );
+    const tournament = await TournamentModel.create({
+      userId,
+      name: tourneyTitle,
+      tournamentType: type,
+      teamsCount: count,
+      teamsData,
+      fixturesData,
+    });
 
-    // Auto-save generated tournament teams into the teams table
+    // Auto-save generated tournament teams into the teams table via TeamModel
     for (const t of teamsData) {
       const outfieldCount = Math.max(1, (t.players || []).length - 1);
       const defC = Math.max(1, Math.round(outfieldCount * 0.4));
       const attC = Math.max(1, Math.round(outfieldCount * 0.25));
       const midC = Math.max(1, outfieldCount - defC - attC);
 
-      await pool.query(
-        `INSERT INTO teams (user_id, name, kit_color, defenders_count, midfielders_count, attackers_count, players_data, tournament_name)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          userId,
-          t.name,
-          t.color || '#16A34A',
-          defC,
-          midC,
-          attC,
-          JSON.stringify(t.players || []),
-          tourneyTitle,
-        ]
-      );
+      await TeamModel.create({
+        userId,
+        name: t.name,
+        kitColor: t.color || '#16A34A',
+        defendersCount: defC,
+        midfieldersCount: midC,
+        attackersCount: attC,
+        playersData: t.players || [],
+        tournamentName: tourneyTitle,
+      });
     }
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(tournament);
   } catch (err) {
     console.error('[TOURNAMENT GENERATE ERROR]:', err.message);
     res.status(500).json({ error: 'فشل إنشاء البطولة وتقسيم الفرق' });
@@ -109,26 +100,17 @@ async function updateTournament(req, res) {
     const tournamentId = req.params.id;
     const { teams_data, fixtures_data, status } = req.body;
 
-    const result = await pool.query(
-      `UPDATE tournaments
-       SET teams_data = COALESCE($1, teams_data),
-           fixtures_data = COALESCE($2, fixtures_data),
-           status = COALESCE($3, status)
-       WHERE id = $4
-       RETURNING *`,
-      [
-        teams_data ? JSON.stringify(teams_data) : null,
-        fixtures_data ? JSON.stringify(fixtures_data) : null,
-        status || null,
-        tournamentId,
-      ]
-    );
+    const updated = await TournamentModel.update(tournamentId, {
+      teamsData: teams_data,
+      fixturesData: fixtures_data,
+      status,
+    });
 
-    if (result.rows.length === 0) {
+    if (!updated) {
       return res.status(404).json({ error: 'البطولة غير موجودة' });
     }
 
-    res.json(result.rows[0]);
+    res.json(updated);
   } catch (err) {
     console.error('[DB ERROR - PUT /api/tournaments/:id]:', err.message);
     res.status(500).json({ error: 'فشل تحديث البطولة' });
@@ -142,7 +124,7 @@ async function updateTournament(req, res) {
 async function deleteTournament(req, res) {
   try {
     const tournamentId = req.params.id;
-    await pool.query(`DELETE FROM tournaments WHERE id = $1`, [tournamentId]);
+    await TournamentModel.delete(tournamentId);
     res.json({ success: true, deletedId: Number(tournamentId) });
   } catch (err) {
     console.error('[DB ERROR - DELETE /api/tournaments/:id]:', err.message);

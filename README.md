@@ -128,17 +128,27 @@ QismaApp/
 │   │   ├── PlayerCard.tsx          # Visual pitch player cards & draft slot cards
 │   │   └── AppModals.tsx           # Multi-select, score recording, and auth modals
 │   │
-│   └── backend/                    # ⚙️ Modular 3-Tier Backend
+│   └── backend/                    # ⚙️ Modular Layered Backend
 │       ├── server.js               # Clean entry point (~45 lines) mounting routes
-│       ├── db.js                   # PostgreSQL connection pool & schema migrations
+│       ├── db.js                   # PostgreSQL connection pool & master initializer
 │       └── src/
+│           ├── db/                 # 🗄️ Database Initialization & Migrations
+│           │   ├── schema.js       # Relational DDL tables & performance indexes
+│           │   └── seeds.js        # Default admin, starter teams & player seeds
+│           ├── models/             # 📦 Data Access Layer (Dedicated DB Models)
+│           │   ├── user.model.js   # User accounts & role management
+│           │   ├── player.model.js # Players, stats, wins & MVP rating boosts
+│           │   ├── team.model.js   # Custom teams, kit colors & lineups
+│           │   ├── match.model.js  # Match history, score logging & ratings
+│           │   ├── tournament.model.js # League/knockout fixtures & standings
+│           │   └── index.js        # Barrel export for all models
 │           ├── utils/helpers.js    # Data sanitization, team code generator (A..Z)
 │           ├── services/           # Heavy business logic & AI algorithms
 │           │   ├── ai.service.js   # 3-Tier AI Engine (Llama 3.1 + Gemini + Local Fallback)
 │           │   ├── balancing.service.js # Tactical pitch balancing & tournament brackets
 │           │   └── players.service.js   # Background player auto-sync to PostgreSQL
-│           ├── controllers/        # Request validation & HTTP responses
-│           └── routes/             # Dedicated API route modules
+│           ├── controllers/        # Request validation, business orchestration & HTTP
+│           └── routes/             # Dedicated Express API route modules
 ```
 
 ---

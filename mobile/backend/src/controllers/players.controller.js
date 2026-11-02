@@ -2,10 +2,11 @@
  * ============================================================================
  * Players Controller (Player CRUD & Multi-Squad Management)
  * ============================================================================
- * Handles listing, adding, editing, and deleting registered players in PostgreSQL.
+ * Handles listing, adding, editing, and deleting registered players
+ * using the PlayerModel data access layer.
  */
 
-const { pool } = require('../../db');
+const { PlayerModel } = require('../models');
 const { getDefaultUserId, cleanPlayerName } = require('../utils/helpers');
 
 /**
@@ -15,18 +16,8 @@ const { getDefaultUserId, cleanPlayerName } = require('../utils/helpers');
 async function getPlayers(req, res) {
   try {
     const userId = await getDefaultUserId();
-    const result = await pool.query(
-      `SELECT id, name, rating, primary_position, secondary_positions,
-              COALESCE(group_name, 'عام') AS group_name,
-              COALESCE(matches_played, 0) AS matches_played,
-              COALESCE(wins, 0) AS wins,
-              COALESCE(mvp_count, 0) AS mvp_count
-       FROM players
-       WHERE user_id = $1
-       ORDER BY rating DESC, wins DESC, id DESC`,
-      [userId]
-    );
-    res.json(result.rows);
+    const players = await PlayerModel.findAll(userId);
+    res.json(players);
   } catch (err) {
     console.error('[DB ERROR - GET /api/players]:', err.message);
     res.status(500).json({ error: 'فشل جلب قائمة اللاعبين من قاعدة البيانات' });
@@ -53,14 +44,16 @@ async function createPlayer(req, res) {
 
     const finalGroupName = (group_name && group_name.trim()) ? group_name.trim() : 'عام';
 
-    const result = await pool.query(
-      `INSERT INTO players (user_id, name, rating, primary_position, secondary_positions, group_name)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, rating, primary_position, secondary_positions, group_name`,
-      [userId, cleanName, numRating, primary_position, secPositionsArray, finalGroupName]
-    );
+    const player = await PlayerModel.create({
+      userId,
+      name: cleanName,
+      rating: numRating,
+      primaryPosition: primary_position,
+      secondaryPositions: secPositionsArray,
+      groupName: finalGroupName,
+    });
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(player);
   } catch (err) {
     console.error('[DB ERROR - POST /api/players]:', err.message);
     res.status(500).json({ error: 'فشل حفظ اللاعب في قاعدة البيانات' });
@@ -88,19 +81,19 @@ async function updatePlayer(req, res) {
 
     const finalGroupName = (group_name && group_name.trim()) ? group_name.trim() : 'عام';
 
-    const result = await pool.query(
-      `UPDATE players
-       SET name = $1, rating = $2, primary_position = $3, secondary_positions = $4, group_name = $5
-       WHERE id = $6
-       RETURNING id, name, rating, primary_position, secondary_positions, group_name`,
-      [cleanName, numRating, primary_position, secPositionsArray, finalGroupName, playerId]
-    );
+    const updated = await PlayerModel.update(playerId, {
+      name: cleanName,
+      rating: numRating,
+      primaryPosition: primary_position,
+      secondaryPositions: secPositionsArray,
+      groupName: finalGroupName,
+    });
 
-    if (result.rows.length === 0) {
+    if (!updated) {
       return res.status(404).json({ error: 'اللاعب غير موجود' });
     }
 
-    res.json(result.rows[0]);
+    res.json(updated);
   } catch (err) {
     console.error('[DB ERROR - PUT /api/players/:id]:', err.message);
     res.status(500).json({ error: 'فشل تحديث بيانات اللاعب' });
@@ -114,7 +107,7 @@ async function updatePlayer(req, res) {
 async function deletePlayer(req, res) {
   try {
     const playerId = req.params.id;
-    await pool.query(`DELETE FROM players WHERE id = $1`, [playerId]);
+    await PlayerModel.delete(playerId);
     res.json({ success: true, deletedId: Number(playerId) });
   } catch (err) {
     console.error('[DB ERROR - DELETE /api/players/:id]:', err.message);

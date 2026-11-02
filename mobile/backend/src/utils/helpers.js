@@ -10,19 +10,14 @@
  * - getDefaultUserId: Resolves the default organizer user ID from PostgreSQL.
  */
 
-const { pool } = require('../../db');
+const UserModel = require('../models/user.model');
 
 /**
  * Resolves the primary default user id (admin/organizer).
  * Creates the admin user record if not present.
  */
 async function getDefaultUserId() {
-  const res = await pool.query(`SELECT id FROM users WHERE username = 'admin' LIMIT 1`);
-  if (res.rows.length > 0) return res.rows[0].id;
-  const insertRes = await pool.query(
-    `INSERT INTO users (username, role) VALUES ('admin', 'registered') RETURNING id`
-  );
-  return insertRes.rows[0].id;
+  return await UserModel.getDefaultUserId();
 }
 
 /**

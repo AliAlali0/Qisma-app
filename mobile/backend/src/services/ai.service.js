@@ -1,20 +1,30 @@
 /**
  * ============================================================================
- * AI Service (Dual/Hybrid AI Engine: Llama 3.1 + Gemini API + Heuristic Fallback)
+ * AI Service (Direct Cloud LLM Engine: OpenAI / Groq / DeepSeek + Heuristic Fallback)
  * ============================================================================
- * Implements resilient 3-tier parsing of unformatted WhatsApp squad lists:
- * - Tier 1: Meta Llama 3.1 via local Ollama server (8-second timeout).
- * - Tier 2: Google Gemini API (gemini-2.5-flash / gemini-1.5-flash) cloud fallback.
- * - Tier 3: Local regex/heuristic rule engine ensuring 100% zero downtime.
+ * Direct cloud LLM parsing of unformatted WhatsApp squad lists:
+ * - Primary: Direct Cloud LLM (OpenAI GPT-4o-mini, Groq Llama 3.3, DeepSeek) via standard OpenAI-compatible API.
+ * - Zero local GPU/RAM requirement.
+ * - Fallback: Deterministic local regex/heuristic rule engine ensuring 100% zero downtime.
  */
 
 const axios = require('axios');
-const { GoogleGenAI } = require('@google/genai');
 const { cleanPlayerName } = require('../utils/helpers');
 const { balanceTeamsTactically } = require('./balancing.service');
 
-// Initialize Google Gemini SDK instance if API key is provided
-const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+/**
+ * Returns an active GoogleGenAI client instance if GEMINI_API_KEY is provided.
+ */
+function getGeminiClient() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const { GoogleGenAI } = require('@google/genai');
+    return new GoogleGenAI({ apiKey });
+  } catch (e) {
+    return null;
+  }
+}
 
 /**
  * Builds standard structured JSON prompt for LLM extraction.
@@ -153,16 +163,17 @@ async function analyzeWithLlamaAI(text, dbPlayersMap, dbPlayersSummary, explicit
  * Cloud Google Gemini analyzer via @google/genai SDK.
  */
 async function analyzeWithGeminiAI(text, dbPlayersMap, dbPlayersSummary, explicitHints) {
-  if (!ai) {
+  const client = getGeminiClient();
+  if (!client) {
     throw new Error('GEMINI_API_KEY is not defined in environment variables');
   }
 
   const prompt = buildAIPrompt(text, dbPlayersSummary);
-  console.log('[Gemini Cloud AI] Calling Google Gemini API as intelligent cloud fallback...');
+  console.log('[Gemini Cloud AI] Calling Google Gemini Cloud API directly...');
 
   let response;
   try {
-    response = await ai.models.generateContent({
+    response = await client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
@@ -171,7 +182,7 @@ async function analyzeWithGeminiAI(text, dbPlayersMap, dbPlayersSummary, explici
     });
   } catch (err) {
     console.warn(`[Gemini 2.5 failed, falling back to gemini-1.5-flash]: ${err.message}`);
-    response = await ai.models.generateContent({
+    response = await client.models.generateContent({
       model: 'gemini-1.5-flash',
       contents: prompt,
       config: {
@@ -184,6 +195,81 @@ async function analyzeWithGeminiAI(text, dbPlayersMap, dbPlayersSummary, explici
   textRes = textRes.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
   const rawResult = JSON.parse(textRes);
   return postProcessAIResult(rawResult, dbPlayersMap, explicitHints, 'gemini');
+}
+
+/**
+ * Direct Cloud LLM analyzer via standard OpenAI-compatible REST API.
+ * Connects directly to OpenAI (GPT-4o / GPT-4o-mini), Groq (Llama 3.3 in cloud), DeepSeek, or OpenRouter.
+ */
+async function analyzeWithDirectLLM(text, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  const apiKey =
+    process.env.OPENAI_API_KEY ||
+    process.env.LLM_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.DEEPSEEK_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('No Direct LLM API key provided. Set OPENAI_API_KEY or LLM_API_KEY in .env');
+  }
+
+  let baseURL = process.env.LLM_BASE_URL;
+  let model = process.env.LLM_MODEL;
+
+  if (!baseURL) {
+    if (process.env.GROQ_API_KEY || apiKey.startsWith('gsk_')) {
+      baseURL = 'https://api.groq.com/openai/v1';
+      model = model || 'llama-3.3-70b-versatile';
+    } else if (process.env.DEEPSEEK_API_KEY) {
+      baseURL = 'https://api.deepseek.com';
+      model = model || 'deepseek-chat';
+    } else {
+      baseURL = 'https://api.openai.com/v1';
+      model = model || 'gpt-4o-mini';
+    }
+  }
+
+  model = model || 'gpt-4o-mini';
+  const cleanBase = baseURL.replace(/\/+$/, '');
+  const url = `${cleanBase}/chat/completions`;
+
+  console.log(`[Direct LLM] Calling ${url} with model: ${model}...`);
+
+  const prompt = buildAIPrompt(text, dbPlayersSummary);
+
+  const response = await axios.post(
+    url,
+    {
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: 'أنت محلل بيانات رياضي دقيق وصارم جداً. مهمتك تحليل نص الواتساب وإرجاع النتيجة بصيغة JSON فقط حسب القواعد المطلوبة.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+    }
+  );
+
+  const content = response.data?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('Empty response from Direct LLM');
+  }
+
+  let cleanContent = content.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+  const rawResult = JSON.parse(cleanContent);
+  return postProcessAIResult(rawResult, dbPlayersMap, explicitHints, 'direct_llm');
 }
 
 /**
@@ -302,39 +388,71 @@ function guestLocalAnalyzer(text) {
 }
 
 /**
- * High-level AI router: runs Llama 3.1 -> falls back to Gemini -> falls back to Local rule engine.
+ * High-level AI router:
+ * 1. Primary: Direct Cloud LLM (OpenAI / Groq / DeepSeek / Any direct endpoint).
+ * 2. Optional: Gemini API (only if explicit GEMINI_API_KEY is present and no direct LLM).
+ * 3. Fallback: Deterministic Local Rule Engine (100% zero downtime even offline).
  */
 async function processRosterDivision(rawText, userRole, dbPlayersMap, dbPlayersSummary, explicitHints) {
+  // Guest users use the deterministic local rule engine
   if (userRole === 'guest') {
     const result = guestLocalAnalyzer(rawText);
     result.analysisSource = 'local';
     return result;
   }
 
-  try {
-    const result = await analyzeWithLlamaAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
-    console.log(`[AI SUCCESS] Analyzed via Local Llama 3.1 AI (${result.totalExtracted} players).`);
-    return result;
-  } catch (llamaErr) {
-    console.warn(`[Llama AI Unavailable]: ${llamaErr.message}. Initiating auto-fallback to Google Gemini Cloud API...`);
+  // 1. PRIMARY: Direct Cloud LLM (OpenAI, Groq, DeepSeek, or any OpenAI-compatible API)
+  const hasDirectKey =
+    process.env.OPENAI_API_KEY ||
+    process.env.LLM_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.DEEPSEEK_API_KEY;
+
+  if (hasDirectKey) {
     try {
-      const result = await analyzeWithGeminiAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
-      console.log(`[AI SUCCESS] Analyzed via Google Gemini Cloud AI Fallback (${result.totalExtracted} players).`);
+      const result = await analyzeWithDirectLLM(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+      console.log(`[AI SUCCESS] Analyzed via Direct LLM (${result.totalExtracted} players).`);
       return result;
-    } catch (geminiErr) {
-      console.warn(`[Gemini AI Error]: ${geminiErr.message}. Falling back to Smart Local Rule Engine...`);
-      const result = guestLocalAnalyzer(rawText);
-      result.analysisSource = 'local';
-      return result;
+    } catch (llmErr) {
+      console.warn(`[Direct LLM Warning]: ${llmErr.message}.`);
     }
   }
+
+  // 2. OPTIONAL: Google Gemini (Only if no direct LLM key is configured)
+  if (process.env.GEMINI_API_KEY && !hasDirectKey) {
+    try {
+      const result = await analyzeWithGeminiAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+      console.log(`[AI SUCCESS] Analyzed via Google Gemini Cloud AI (${result.totalExtracted} players).`);
+      return result;
+    } catch (geminiErr) {
+      console.warn(`[Gemini Cloud AI Warning]: ${geminiErr.message}.`);
+    }
+  }
+
+  // 3. OPTIONAL LOCAL LLM (Only if explicitly enabled via AI_MODE=local in .env)
+  if (process.env.AI_MODE === 'local') {
+    try {
+      const result = await analyzeWithLlamaAI(rawText, dbPlayersMap, dbPlayersSummary, explicitHints);
+      console.log(`[AI SUCCESS] Analyzed via Local Llama 3.1 (${result.totalExtracted} players).`);
+      return result;
+    } catch (llamaErr) {
+      console.warn(`[Local Llama Warning]: ${llamaErr.message}.`);
+    }
+  }
+
+  // 4. RESILIENT FALLBACK: Deterministic Local Rule Engine
+  console.log('[AI FALLBACK] Routing to deterministic Local Rule Engine (Zero Downtime)...');
+  const result = guestLocalAnalyzer(rawText);
+  result.analysisSource = 'local';
+  return result;
 }
 
 module.exports = {
   buildAIPrompt,
   postProcessAIResult,
-  analyzeWithLlamaAI,
+  analyzeWithDirectLLM,
   analyzeWithGeminiAI,
+  analyzeWithLlamaAI,
   guestLocalAnalyzer,
   processRosterDivision,
 };

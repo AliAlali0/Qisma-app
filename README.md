@@ -6,8 +6,7 @@
   <img src="https://img.shields.io/badge/React_Native-Expo_SDK_58-000000?style=for-the-badge&logo=expo&logoColor=white" />
   <img src="https://img.shields.io/badge/Backend-Node.js_&_Express_(Modular)-339933?style=for-the-badge&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/Database-PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
-  <img src="https://img.shields.io/badge/Local_LLM-Meta_Llama_3.1_(Ollama)-0467DF?style=for-the-badge&logo=meta&logoColor=white" />
-  <img src="https://img.shields.io/badge/Cloud_AI-Google_Gemini_API-8E75B2?style=for-the-badge&logo=google&logoColor=white" />
+  <img src="https://img.shields.io/badge/Direct_Cloud_LLM-OpenAI_&_Groq_(Llama_3.3)-10A37F?style=for-the-badge&logo=openai&logoColor=white" />
 </p>
 
 ---
@@ -16,7 +15,7 @@
 
 **Qismah (قِسمة)** is an end-to-end full-stack mobile platform engineered to eliminate the weekly chaos of organizing casual and amateur football matches (pickup games, rented pitches, and neighborhood leagues).
 
-Instead of dealing with unstructured WhatsApp message lists, unbalanced squads, and manual calculations, **Qismah** leverages a **Dual/Hybrid AI engine (Meta Llama 3.1 & Google Gemini API)** to parse raw WhatsApp rosters, balance teams tactically, render an interactive pitch with formation setups, manage tournaments, and generate authentic FIFA-style **EA FC Ultimate Team (FUT) player cards**.
+Instead of dealing with unstructured WhatsApp message lists, unbalanced squads, and manual calculations, **Qismah** leverages a **Direct Cloud LLM engine (OpenAI GPT-4o-mini, Groq Llama 3.3, or DeepSeek)** to parse raw WhatsApp rosters, balance teams tactically, render an interactive pitch with formation setups, manage tournaments, and generate authentic FIFA-style **EA FC Ultimate Team (FUT) player cards**.
 
 The codebase is built strictly with **TypeScript**, separating business logic into **Custom Hooks** and UI into **Pure Presentational Components**, alongside a **Modular 3-Tier Backend** (Routes ➡️ Controllers ➡️ Services ➡️ Database).
 
@@ -24,12 +23,11 @@ The codebase is built strictly with **TypeScript**, separating business logic in
 
 ## 🌟 Key Features
 
-### 1. 🤖 3-Tier Dual-AI WhatsApp Parser (Llama 3.1 + Gemini Cloud Fallback)
+### 1. 🤖 Direct Cloud LLM WhatsApp Parser (OpenAI / Groq + Fallbacks)
 * **Raw Message Ingestion:** Paste chaotic, unformatted WhatsApp group lists containing numbers, emojis, nicknames, and informal notes.
 * **Resilient AI Pipeline:**
-  * **Tier 1 (Local LLM):** Powered by local **Meta Llama 3.1** via Ollama for zero-cost, private extraction.
-  * **Tier 2 (Cloud AI Fallback):** Automatic, silent fallback to **Google Gemini API (`@google/genai`)** if Ollama is unavailable or times out.
-  * **Tier 3 (Local Rule Engine):** Instant regex and heuristic rule engine ensuring 100% zero downtime even offline.
+  * **Tier 1 (Direct Cloud LLM):** Connects directly to **OpenAI (GPT-4o / GPT-4o-mini)**, **Groq Cloud (Meta Llama 3.3)**, or **DeepSeek** via standard OpenAI-compatible REST API. Fast cloud extraction (~1s latency, zero local GPU/RAM requirement).
+  * **Tier 2 (Local Rule Engine):** Instant deterministic regex and heuristic rule engine ensuring 100% zero downtime even offline.
 * **Smart Tactical Balancing:** Intelligent auto-rounding logic for odd player counts (9v9, 7v7, 5v5) that balances team ratings based on historical database stats and player positions.
 
 ### 2. 🏟️ Interactive Tactical Pitch & Dynamic Formations
@@ -74,8 +72,9 @@ The codebase is built strictly with **TypeScript**, separating business logic in
 | **Frontend Architecture** | **Container / Presentational Pattern** | Pure UI Screens (`.tsx`) + Custom React Hooks (`.ts`) for clean state management |
 | **Backend API** | **Node.js & Express.js** | Modular 3-Tier Layered Architecture (Routes ➡️ Controllers ➡️ Services ➡️ DB) |
 | **Database** | **PostgreSQL** | Relational database containerized with Docker |
-| **Local LLM Engine** | **Meta Llama 3.1 (Ollama)** | Zero-latency local LLM parsing for registered users |
-| **Cloud AI Engine** | **Google Gemini API (`@google/genai`)** | High-precision cloud NLP extraction and zero-downtime fallback |
+| **Primary Cloud AI** | **Google Gemini API (`@google/genai`)** | High-precision cloud NLP extraction (~1s latency, zero local GPU/RAM requirement) |
+| **Secondary Cloud AI** | **Groq Cloud API (Llama 3.3)** | Optional high-throughput hosted Llama in the cloud |
+| **Local Rule Engine** | **Deterministic Regex Heuristics** | Instant offline fallback ensuring 100% zero downtime |
 | **Media & Sharing** | **`react-native-view-shot` & `expo-sharing`** | High-definition canvas screenshot capturing & native sharing |
 
 ---
@@ -158,7 +157,6 @@ QismaApp/
 ### Prerequisites
 * [Node.js](https://nodejs.org/) (v18 or higher)
 * [Docker Desktop](https://www.docker.com/) (for PostgreSQL)
-* [Ollama](https://ollama.ai/) (optional for local Llama 3.1: `ollama run llama3.1`)
 * [Expo Go](https://expo.dev/go) app installed on your physical mobile device
 
 ### 1. Clone the Repository
@@ -180,7 +178,7 @@ npm run dev
 # Server will run on http://localhost:3000
 ```
 
-> **Note for Local AI:** Ensure Ollama is running with `ollama run llama3.1` if you want local Meta Llama 3.1 parsing enabled. Otherwise, the server automatically routes requests to **Google Gemini API**.
+> **Cloud-First AI:** The backend connects directly to **Google Gemini Cloud API** (and optionally **Groq Cloud**). No need to install Ollama or have a dedicated GPU!
 
 ### 4. Start the Expo Mobile App
 ```bash
